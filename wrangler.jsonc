@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fulfillment-assistant",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  // Runs every hour; the code checks whether it's DIGEST_HOUR in TIMEZONE
+  // before actually posting the morning digest.
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
+  "vars": {
+    // IANA timezone used for "today", due dates, and the digest schedule.
+    // Examples: America/New_York, America/Chicago, America/Denver, America/Los_Angeles
+    "TIMEZONE": "America/New_York",
+    // Hour of the day (0-23, in TIMEZONE) to post the morning digest.
+    "DIGEST_HOUR": "8",
+    // Channel ID to post the daily digest to (looks like C0123ABCDEF).
+    // Right-click the channel in Slack > View channel details > scroll to bottom to copy it.
+    // Leave empty to disable the digest.
+    "DIGEST_CHANNEL": "",
+    // Access key for the warehouse wallboard at /board?key=<BOARD_KEY>.
+    // Set to a long random string (e.g. from https://www.uuidgenerator.net).
+    // Leave empty to disable the wallboard.
+    "BOARD_KEY": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fulfillment-db",
+      // Replace with the database_id printed by: npx wrangler d1 create fulfillment-db
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
+}

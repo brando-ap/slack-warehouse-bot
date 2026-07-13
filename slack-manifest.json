@@ -1,0 +1,71 @@
+{
+  "display_information": {
+    "name": "Fulfillment Assistant",
+    "description": "Tracks fulfillment requests, due dates, and the shipping calendar",
+    "background_color": "#1f2937"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Fulfillment Assistant",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/request",
+        "url": "https://YOUR-WORKER-URL.workers.dev/slack/commands",
+        "description": "Create a fulfillment request",
+        "usage_hint": "[what you need] [due <date>] [!high]",
+        "should_escape": false
+      },
+      {
+        "command": "/requests",
+        "url": "https://YOUR-WORKER-URL.workers.dev/slack/commands",
+        "description": "List open requests",
+        "usage_hint": "[done]",
+        "should_escape": false
+      },
+      {
+        "command": "/done",
+        "url": "https://YOUR-WORKER-URL.workers.dev/slack/commands",
+        "description": "Mark a request complete",
+        "usage_hint": "<request id>",
+        "should_escape": false
+      },
+      {
+        "command": "/edit",
+        "url": "https://YOUR-WORKER-URL.workers.dev/slack/commands",
+        "description": "Edit a request: due date, priority, company, assignee, title",
+        "usage_hint": "<id> [due <date>] [!high] [for:company] [assign @person]",
+        "should_escape": true
+      },
+      {
+        "command": "/ship",
+        "url": "https://YOUR-WORKER-URL.workers.dev/slack/commands",
+        "description": "Add a shipment to the calendar",
+        "usage_hint": "[<date> <description>]",
+        "should_escape": false
+      },
+      {
+        "command": "/shipping",
+        "url": "https://YOUR-WORKER-URL.workers.dev/slack/commands",
+        "description": "View the shipping calendar",
+        "usage_hint": "[days]",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": ["commands", "chat:write", "chat:write.public", "im:write"]
+    }
+  },
+  "settings": {
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://YOUR-WORKER-URL.workers.dev/slack/interactions"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
