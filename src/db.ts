@@ -13,6 +13,7 @@ export interface RequestRow {
   assigned_to: string | null;
   channel_id: string | null;
   message_ts: string | null;
+  photos: string | null; // JSON array of Slack file references
   created_at: string;
   completed_at: string | null;
 }
@@ -62,6 +63,10 @@ export async function createRequest(env: Env, req: NewRequest): Promise<RequestR
 
 export async function getRequest(env: Env, id: number): Promise<RequestRow | null> {
   return env.DB.prepare('SELECT * FROM requests WHERE id = ?1').bind(id).first<RequestRow>();
+}
+
+export async function setRequestPhotos(env: Env, id: number, photosJson: string): Promise<void> {
+  await env.DB.prepare('UPDATE requests SET photos = ?1 WHERE id = ?2').bind(photosJson, id).run();
 }
 
 export async function setRequestMessage(env: Env, id: number, channelId: string, ts: string): Promise<void> {

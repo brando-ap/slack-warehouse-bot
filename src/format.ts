@@ -2,6 +2,7 @@
 
 import type { DirectoryRow, RequestRow, ShipmentRow } from './db';
 import { dueLabel, daysUntil, formatDate, todayInTZ } from './dates';
+import { photoCount } from './photos';
 
 /** Ticket-style reference for a request id: 42 -> "REQ-0042". */
 export function ticketRef(id: number): string {
@@ -69,12 +70,16 @@ export function requestBlocks(req: RequestRow, tz: string): unknown[] {
 
   const status = req.status === 'in_progress' ? '🔄 In progress' : '📥 Open';
   const who = req.assigned_to ? `Assigned to <@${req.assigned_to}>` : 'Unassigned';
+  const photos = photoCount(req.photos);
+  const photoNote = photos > 0 ? `  •  📷 ${photos} photo${photos === 1 ? '' : 's'} in thread` : '';
 
   return [
     mrkdwn(lines.join('\n')),
     {
       type: 'context',
-      elements: [{ type: 'mrkdwn', text: `${status}  •  ${who}  •  Requested by <@${req.created_by}>` }],
+      elements: [
+        { type: 'mrkdwn', text: `${status}  •  ${who}  •  Requested by <@${req.created_by}>${photoNote}` },
+      ],
     },
     {
       type: 'actions',
@@ -377,6 +382,19 @@ export function newRequestModal(
           initial_option: option(priority[0], priority[1]),
           options: PRIORITY_OPTIONS.map(([label, value]) => option(label, value)),
         },
+      },
+      {
+        type: 'input',
+        block_id: 'photos',
+        optional: true,
+        label: pt('Photos'),
+        element: {
+          type: 'file_input',
+          action_id: 'v',
+          filetypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'],
+          max_files: 5,
+        },
+        hint: pt('Attached photos are posted in the ticket’s thread for the whole team.'),
       },
     ],
   };

@@ -28,6 +28,27 @@ export async function slackApi(
   return data;
 }
 
+/** Some Slack methods (e.g. files.getUploadURLExternal) accept only form encoding, not JSON. */
+export async function slackApiForm(
+  env: Env,
+  method: string,
+  params: Record<string, string>
+): Promise<SlackApiResponse> {
+  const res = await fetch(`https://slack.com/api/${method}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      authorization: `Bearer ${env.SLACK_BOT_TOKEN}`,
+    },
+    body: new URLSearchParams(params).toString(),
+  });
+  const data = (await res.json()) as SlackApiResponse;
+  if (!data.ok) {
+    console.log(JSON.stringify({ level: 'error', event: 'slack_api_error', method, error: data.error }));
+  }
+  return data;
+}
+
 /** Reply to a slash command or interaction via its response_url (ephemeral by default). */
 export async function respond(
   responseUrl: string,

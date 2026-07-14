@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS requests (
   assigned_to TEXT,                          -- Slack user ID, nullable
   channel_id TEXT,                           -- channel the request was posted to
   message_ts TEXT,                           -- timestamp of the posted Slack message
+  photos TEXT,                               -- JSON array of Slack file references (images live in Slack, not here)
   created_at TEXT NOT NULL,
   completed_at TEXT
 );

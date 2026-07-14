@@ -5,6 +5,7 @@ import * as db from './db';
 import { postRequestMessage } from './commands';
 import { esc, newRequestModal, requestBlocks, ticketRef } from './format';
 import { addDirectoryModal, linkCompaniesModal, publishHome, removeCompanyModal } from './home';
+import { attachPhotos, type ModalFile } from './photos';
 import { dmUser, slackApi } from './slack';
 import { formatDate } from './dates';
 
@@ -35,6 +36,7 @@ interface ViewValue {
   selected_date?: string;
   selected_option?: { value: string };
   selected_options?: Array<{ value: string }>;
+  files?: ModalFile[];
 }
 
 export async function handleInteraction(env: Env, payload: InteractionPayload): Promise<void> {
@@ -207,6 +209,41 @@ async function handleViewSubmission(env: Env, payload: InteractionPayload): Prom
         `✅ Your ticket *${ticketRef(request.id)} · ${esc(request.title)}* was saved, but I couldn't post it to the channel` +
           ` (\`${posted.error}\`). If it's a private channel, run \`/invite @Fulfillment Assistant\` there.`
       );
+      return;
+    }
+
+    // Share any attached photos into the ticket's thread (Slack hosts the
+    // images; we store only references), then refresh the card's 📷 count.
+    const files = values.photos?.v?.files ?? [];
+    if (files.length > 0) {
+      const withMessage = await db.getRequest(env, request.id);
+      if (withMessage?.channel_id && withMessage.message_ts) {
+        const attached = await attachPhotos(
+          env,
+          request.id,
+          files,
+          withMessage.channel_id,
+          withMessage.message_ts
+        );
+        if (attached > 0) {
+          const fresh = await db.getRequest(env, request.id);
+          if (fresh) {
+            await slackApi(env, 'chat.update', {
+              channel: withMessage.channel_id,
+              ts: withMessage.message_ts,
+              text: `Ticket ${ticketRef(fresh.id)}: ${fresh.title}`,
+              blocks: requestBlocks(fresh, env.TIMEZONE),
+            });
+          }
+        }
+        if (attached < files.length) {
+          await dmUser(
+            env,
+            userId,
+            `⚠️ ${files.length - attached} photo${files.length - attached === 1 ? '' : 's'} on ticket *${ticketRef(request.id)}* couldn't be attached — you can post them in the ticket's thread instead.`
+          );
+        }
+      }
     }
     return;
   }

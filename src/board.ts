@@ -5,6 +5,7 @@
 import { getUserNames, listOpenRequests, listShipments, type RequestRow } from './db';
 import { addDays, daysUntil, formatDate, todayInTZ } from './dates';
 import { ticketRef } from './format';
+import { photoCount } from './photos';
 
 function escHtml(text: string): string {
   return text
@@ -76,6 +77,7 @@ export async function renderBoard(env: Env, url: URL): Promise<Response> {
         ${customer ? `<span class="company">${escHtml(customer)}</span>` : ''}
         ${status}
         ${assignee ? `<span class="meta">👤 ${assignee}${r.status === 'in_progress' ? ' (working)' : ''}</span>` : '<span class="meta">unclaimed</span>'}
+        ${photoCount(r.photos) > 0 ? `<span class="meta">📷 ${photoCount(r.photos)}</span>` : ''}
       </div>
     </li>`;
   };
