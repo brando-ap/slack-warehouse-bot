@@ -2,3 +2,4 @@
 # In production these are set with: npx wrangler secret put <NAME>
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 SLACK_SIGNING_SECRET=your-signing-secret
+BOARD_KEY=any-local-test-key
