@@ -3,11 +3,13 @@
 // Endpoints (configured in the Slack app manifest):
 //   POST /slack/commands      slash commands
 //   POST /slack/interactions  buttons + modal submissions
+//   POST /slack/events        Events API (App Home opened)
 // Cron: hourly, posts the morning digest at DIGEST_HOUR in TIMEZONE.
 
 import { renderBoard } from './board';
 import { handleSlashCommand } from './commands';
 import { maybeRunDigest } from './digest';
+import { publishHome } from './home';
 import { handleInteraction } from './interactions';
 import { respond } from './slack';
 import { verifySlackSignature } from './verify';
@@ -57,6 +59,30 @@ export default {
         })
       );
       // Ack immediately (Slack's 3-second rule); the real reply arrives via response_url.
+      return new Response(null, { status: 200 });
+    }
+
+    if (url.pathname === '/slack/events') {
+      const payload = JSON.parse(body) as {
+        type?: string;
+        challenge?: string;
+        event?: { type?: string; tab?: string; user?: string };
+      };
+      // Slack verifies this URL when the manifest is saved.
+      if (payload.type === 'url_verification') {
+        return new Response(JSON.stringify({ challenge: payload.challenge }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (
+        payload.type === 'event_callback' &&
+        payload.event?.type === 'app_home_opened' &&
+        payload.event.tab === 'home' &&
+        payload.event.user
+      ) {
+        const userId = payload.event.user;
+        ctx.waitUntil(publishHome(env, userId).catch((err) => logError('home_publish_failed', err)));
+      }
       return new Response(null, { status: 200 });
     }
 

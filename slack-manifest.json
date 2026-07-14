@@ -5,6 +5,11 @@
     "background_color": "#1f2937"
   },
   "features": {
+    "app_home": {
+      "home_tab_enabled": true,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": true
+    },
     "bot_user": {
       "display_name": "Fulfillment Assistant",
       "always_online": true
@@ -39,6 +44,20 @@
         "should_escape": true
       },
       {
+        "command": "/customer",
+        "url": "https://fulfillment-assistant.brandon-taylor2399.workers.dev/slack/commands",
+        "description": "Manage the customer list shown in the /request form",
+        "usage_hint": "[add <name> | link <name> | <companies> | remove | list]",
+        "should_escape": false
+      },
+      {
+        "command": "/company",
+        "url": "https://fulfillment-assistant.brandon-taylor2399.workers.dev/slack/commands",
+        "description": "Manage the company list shown in the /request form",
+        "usage_hint": "[add <name> | remove <name> | list]",
+        "should_escape": false
+      },
+      {
         "command": "/ship",
         "url": "https://fulfillment-assistant.brandon-taylor2399.workers.dev/slack/commands",
         "description": "Add a shipment to the calendar",
@@ -60,6 +79,10 @@
     }
   },
   "settings": {
+    "event_subscriptions": {
+      "request_url": "https://fulfillment-assistant.brandon-taylor2399.workers.dev/slack/events",
+      "bot_events": ["app_home_opened"]
+    },
     "interactivity": {
       "is_enabled": true,
       "request_url": "https://fulfillment-assistant.brandon-taylor2399.workers.dev/slack/interactions"

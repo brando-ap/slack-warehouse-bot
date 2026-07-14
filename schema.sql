@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
   details TEXT,
-  company TEXT,                              -- customer / company the request is for
+  company TEXT,                              -- company the request is for
+  contact TEXT,                              -- customer contact who requested it
   status TEXT NOT NULL DEFAULT 'open',       -- open | in_progress | done | cancelled
   priority TEXT NOT NULL DEFAULT 'normal',   -- low | normal | high | urgent
   due_date TEXT,                             -- YYYY-MM-DD, nullable
@@ -31,6 +32,28 @@ CREATE TABLE IF NOT EXISTS shipments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_shipments_date ON shipments (ship_date);
+
+-- Customer directory: contacts (people who send requests) and companies they
+-- request for. Managed with /customer and /company; feeds the /request form.
+CREATE TABLE IF NOT EXISTS contacts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS companies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  created_at TEXT NOT NULL
+);
+
+-- Which companies each contact requests for (/customer link). When a contact
+-- has links, the /request form narrows its company dropdown to just those.
+CREATE TABLE IF NOT EXISTS contact_companies (
+  contact_id INTEGER NOT NULL,
+  company_id INTEGER NOT NULL,
+  PRIMARY KEY (contact_id, company_id)
+);
 
 -- Slack user id -> display name, learned as people use commands and buttons.
 -- Lets the wallboard show names without extra Slack permissions.

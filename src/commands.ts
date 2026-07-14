@@ -11,6 +11,7 @@ import {
   openRequestsBlocks,
   requestBlocks,
   shipmentsBlocks,
+  ticketRef,
 } from './format';
 import { respond, slackApi } from './slack';
 
@@ -57,6 +58,10 @@ export async function handleSlashCommand(env: Env, form: Record<string, string>)
       return handleDone(env, form);
     case '/edit':
       return handleEdit(env, form);
+    case '/customer':
+      return handleDirectory(env, form, 'contacts');
+    case '/company':
+      return handleDirectory(env, form, 'companies');
     case '/ship':
       return handleShip(env, form);
     case '/shipping':
@@ -136,9 +141,13 @@ async function handleRequest(env: Env, form: Record<string, string>): Promise<vo
   }
 
   if (!text) {
+    const [contacts, companies] = await Promise.all([
+      db.listDirectory(env, 'contacts'),
+      db.listDirectory(env, 'companies'),
+    ]);
     const res = await slackApi(env, 'views.open', {
       trigger_id: form.trigger_id,
-      view: newRequestModal(form.channel_id),
+      view: newRequestModal(form.channel_id, contacts, companies),
     });
     if (!res.ok) {
       await respond(form.response_url, {
@@ -153,11 +162,14 @@ async function handleRequest(env: Env, form: Record<string, string>): Promise<vo
     return respond(form.response_url, { text: REQUEST_USAGE });
   }
 
+  // Snap free-typed company text to the saved directory ("acme" -> "Acme Logistics")
+  const canonical = company ? await db.matchCompany(env, company) : null;
+
   const request = await db.createRequest(env, {
     title,
     priority,
     due_date: due,
-    company,
+    company: canonical ?? company,
     created_by: form.user_id,
     channel_id: form.channel_id,
   });
@@ -165,11 +177,11 @@ async function handleRequest(env: Env, form: Record<string, string>): Promise<vo
   const posted = await postRequestMessage(env, request, form.channel_id);
   if (posted.ok) {
     await respond(form.response_url, {
-      text: `✅ Logged *#${request.id}* and posted it to the channel.`,
+      text: `✅ Logged ticket *${ticketRef(request.id)}* and posted it to the channel.`,
     });
   } else {
     await respond(form.response_url, {
-      text: `✅ Logged *#${request.id} · ${esc(request.title)}* — but ${notPostedHint(posted.error)}`,
+      text: `✅ Logged ticket *${ticketRef(request.id)} · ${esc(request.title)}* — but ${notPostedHint(posted.error)}`,
     });
   }
 }
@@ -182,7 +194,9 @@ async function handleRequestList(env: Env, form: Record<string, string>): Promis
     if (done.length === 0) {
       return respond(form.response_url, { text: 'No completed requests yet.' });
     }
-    const lines = done.map((r) => `✅ ~*#${r.id}*  ${esc(r.title)}~${r.assigned_to ? `  ·  <@${r.assigned_to}>` : ''}`);
+    const lines = done.map(
+      (r) => `✅ ~*${ticketRef(r.id)}*  ${esc(r.title)}~${r.assigned_to ? `  ·  <@${r.assigned_to}>` : ''}`
+    );
     return respond(form.response_url, { text: `*Recently completed*\n${lines.join('\n')}` });
   }
 
@@ -191,7 +205,10 @@ async function handleRequestList(env: Env, form: Record<string, string>): Promis
   // Any other text filters the list by company or title, e.g. `/requests acme`
   if (text) {
     open = open.filter(
-      (r) => r.title.toLowerCase().includes(text) || (r.company ?? '').toLowerCase().includes(text)
+      (r) =>
+        r.title.toLowerCase().includes(text) ||
+        (r.company ?? '').toLowerCase().includes(text) ||
+        (r.contact ?? '').toLowerCase().includes(text)
     );
     if (open.length === 0) {
       return respond(form.response_url, {
@@ -207,17 +224,19 @@ async function handleRequestList(env: Env, form: Record<string, string>): Promis
 }
 
 async function handleDone(env: Env, form: Record<string, string>): Promise<void> {
-  const match = (form.text ?? '').trim().match(/^#?(\d+)$/);
+  const match = (form.text ?? '').trim().match(/^(?:req-?)?#?(\d+)$/i);
   if (!match) {
-    return respond(form.response_url, { text: 'Usage: `/done <request id>` — e.g. `/done 12`. Find ids with `/requests`.' });
+    return respond(form.response_url, {
+      text: 'Usage: `/done <ticket number>` — e.g. `/done 12` or `/done REQ-0012`. Find tickets with `/requests`.',
+    });
   }
   const id = Number(match[1]);
   const existing = await db.getRequest(env, id);
   if (!existing) {
-    return respond(form.response_url, { text: `Couldn't find request *#${id}*. Check \`/requests\` for open ids.` });
+    return respond(form.response_url, { text: `Couldn't find ticket *${ticketRef(id)}*. Check \`/requests\` for open tickets.` });
   }
   if (existing.status === 'done' || existing.status === 'cancelled') {
-    return respond(form.response_url, { text: `*#${id}* is already closed (${existing.status}).` });
+    return respond(form.response_url, { text: `*${ticketRef(id)}* is already closed (${existing.status}).` });
   }
 
   if (!existing.assigned_to) {
@@ -229,22 +248,22 @@ async function handleDone(env: Env, form: Record<string, string>): Promise<void>
     await slackApi(env, 'chat.update', {
       channel: updated.channel_id,
       ts: updated.message_ts,
-      text: `Request #${updated.id} completed: ${updated.title}`,
+      text: `Ticket ${ticketRef(updated.id)} completed: ${updated.title}`,
       blocks: requestBlocks(updated, env.TIMEZONE),
     });
   }
-  return respond(form.response_url, { text: `✅ Marked *#${id} · ${esc(existing.title)}* as done. Nice work!` });
+  return respond(form.response_url, { text: `✅ Closed *${ticketRef(id)} · ${esc(existing.title)}*. Nice work!` });
 }
 
 async function handleEdit(env: Env, form: Record<string, string>): Promise<void> {
-  const match = (form.text ?? '').trim().match(/^#?(\d+)\s*([\s\S]*)$/);
+  const match = (form.text ?? '').trim().match(/^(?:req-?)?#?(\d+)\s*([\s\S]*)$/i);
   if (!match || !match[2].trim()) {
     return respond(form.response_url, { text: EDIT_USAGE });
   }
   const id = Number(match[1]);
   const existing = await db.getRequest(env, id);
   if (!existing) {
-    return respond(form.response_url, { text: `Couldn't find request *#${id}*. Check \`/requests\` for ids.` });
+    return respond(form.response_url, { text: `Couldn't find ticket *${ticketRef(id)}*. Check \`/requests\` for tickets.` });
   }
 
   let rest = match[2].trim();
@@ -310,8 +329,8 @@ async function handleEdit(env: Env, form: Record<string, string>): Promise<void>
         edits.company = null;
         changes.push('company cleared');
       } else {
-        edits.company = company;
-        changes.push(`company → ${esc(company)}`);
+        edits.company = (await db.matchCompany(env, company)) ?? company;
+        changes.push(`company → ${esc(edits.company)}`);
       }
     }
     tryDue();
@@ -328,13 +347,126 @@ async function handleEdit(env: Env, form: Record<string, string>): Promise<void>
     await slackApi(env, 'chat.update', {
       channel: updated.channel_id,
       ts: updated.message_ts,
-      text: `Request #${updated.id}: ${updated.title} (${updated.status})`,
+      text: `Ticket ${ticketRef(updated.id)}: ${updated.title} (${updated.status})`,
       blocks: requestBlocks(updated, env.TIMEZONE),
     });
   }
   return respond(form.response_url, {
-    text: `✏️ Updated *#${id} · ${esc(existing.title)}*: ${changes.join(', ')}`,
+    text: `✏️ Updated *${ticketRef(id)} · ${esc(existing.title)}*: ${changes.join(', ')}`,
   });
+}
+
+const DIRECTORY_LABELS: Record<db.DirectoryKind, { singular: string; command: string; hint: string }> = {
+  contacts: { singular: 'customer', command: '/customer', hint: 'the people who send you requests' },
+  companies: { singular: 'company', command: '/company', hint: 'the companies requests are for' },
+};
+
+async function handleDirectory(env: Env, form: Record<string, string>, kind: db.DirectoryKind): Promise<void> {
+  const { singular, command, hint } = DIRECTORY_LABELS[kind];
+  const text = (form.text ?? '').trim();
+
+  const usage = [
+    `*How to use \`${command}\`* — manage ${hint} (shown as dropdowns in the \`/request\` form)`,
+    `• \`${command} add Jane Doe\` — add to the list`,
+    `• \`${command} list\` — see the list`,
+    `• \`${command} remove Jane Doe\` (or \`remove 3\`) — take one off`,
+    ...(kind === 'contacts'
+      ? [
+          '• `/customer link Jane Doe | Acme, Globex` — set which companies Jane requests for (her dropdown then shows only those; new company names are added automatically)',
+          '• `/customer unlink Jane Doe | Acme` — remove a link',
+        ]
+      : []),
+  ].join('\n');
+
+  const linkMatch = text.match(/^(link|unlink)\s+([^|]+)\|(.+)$/i);
+  if (linkMatch && kind === 'contacts') {
+    const verb = linkMatch[1].toLowerCase();
+    const contactName = linkMatch[2].trim().replace(/\s+/g, ' ');
+    const contact = await db.getDirectoryEntryByName(env, 'contacts', contactName);
+    if (!contact) {
+      return respond(form.response_url, {
+        text: `Couldn't find customer *${esc(contactName)}* — add them first with \`/customer add ${esc(contactName)}\`.`,
+      });
+    }
+    const companyNames = linkMatch[3]
+      .split(',')
+      .map((s) => s.trim().replace(/\s+/g, ' ').slice(0, 70))
+      .filter(Boolean);
+    if (companyNames.length === 0) {
+      return respond(form.response_url, { text: usage });
+    }
+
+    const touched: string[] = [];
+    for (const name of companyNames) {
+      let companyRow = await db.getDirectoryEntryByName(env, 'companies', name);
+      if (verb === 'link' && !companyRow) {
+        const added = await db.addDirectoryEntry(env, 'companies', name);
+        companyRow = added === 'duplicate' ? await db.getDirectoryEntryByName(env, 'companies', name) : added;
+      }
+      if (!companyRow) continue;
+      if (verb === 'link') {
+        await db.linkContactCompany(env, contact.id, companyRow.id);
+      } else {
+        await db.unlinkContactCompany(env, contact.id, companyRow.id);
+      }
+      touched.push(companyRow.name);
+    }
+
+    if (touched.length === 0) {
+      return respond(form.response_url, { text: `None of those companies matched — check \`/company list\`.` });
+    }
+    const linkedNow = await db.companiesForContact(env, contact.name);
+    const summary = linkedNow.length
+      ? `Their \`/request\` dropdown now shows: ${linkedNow.map((c) => esc(c.name)).join(', ')}.`
+      : 'They have no linked companies now, so their dropdown shows the full company list.';
+    return respond(form.response_url, {
+      text: `${verb === 'link' ? '🔗 Linked' : '✂️ Unlinked'} *${esc(contact.name)}* ${verb === 'link' ? 'to' : 'from'}: ${touched.map(esc).join(', ')}.\n${summary}`,
+    });
+  }
+
+  const addMatch = text.match(/^add\s+(.+)$/i);
+  if (addMatch) {
+    const name = addMatch[1].trim().replace(/\s+/g, ' ').slice(0, 70);
+    const added = await db.addDirectoryEntry(env, kind, name);
+    return respond(form.response_url, {
+      text:
+        added === 'duplicate'
+          ? `*${esc(name)}* is already on the ${singular} list.`
+          : `✅ Added *${esc(name)}* to the ${singular} list. It now shows up in the \`/request\` form.`,
+    });
+  }
+
+  const removeMatch = text.match(/^(?:remove|delete)\s+(.+)$/i);
+  if (removeMatch) {
+    const removed = await db.removeDirectoryEntry(env, kind, removeMatch[1].trim());
+    return respond(form.response_url, {
+      text: removed
+        ? `🗑️ Removed *${esc(removed.name)}* from the ${singular} list.`
+        : `Couldn't find that on the ${singular} list — check \`${command} list\`.`,
+    });
+  }
+
+  if (!text || /^list$/i.test(text)) {
+    const rows = await db.listDirectory(env, kind);
+    if (rows.length === 0) {
+      return respond(form.response_url, { text: `The ${singular} list is empty.\n\n${usage}` });
+    }
+    const lines =
+      kind === 'contacts'
+        ? await Promise.all(
+            rows.map(async (r) => {
+              const linked = await db.companiesForContact(env, r.name);
+              const suffix = linked.length ? `  —  ${linked.map((c) => esc(c.name)).join(', ')}` : '';
+              return `${r.id}. ${esc(r.name)}${suffix}`;
+            })
+          )
+        : rows.map((r) => `${r.id}. ${esc(r.name)}`);
+    return respond(form.response_url, {
+      text: `*${singular[0].toUpperCase() + singular.slice(1)} list (${rows.length})*\n${lines.join('\n')}`,
+    });
+  }
+
+  return respond(form.response_url, { text: usage });
 }
 
 async function handleShip(env: Env, form: Record<string, string>): Promise<void> {

@@ -5,6 +5,7 @@ export interface RequestRow {
   title: string;
   details: string | null;
   company: string | null;
+  contact: string | null;
   status: 'open' | 'in_progress' | 'done' | 'cancelled';
   priority: 'low' | 'normal' | 'high' | 'urgent';
   due_date: string | null;
@@ -30,6 +31,7 @@ export interface NewRequest {
   title: string;
   details?: string | null;
   company?: string | null;
+  contact?: string | null;
   priority?: string;
   due_date?: string | null;
   created_by: string;
@@ -38,13 +40,14 @@ export interface NewRequest {
 
 export async function createRequest(env: Env, req: NewRequest): Promise<RequestRow> {
   const result = await env.DB.prepare(
-    `INSERT INTO requests (title, details, company, priority, due_date, created_by, channel_id, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+    `INSERT INTO requests (title, details, company, contact, priority, due_date, created_by, channel_id, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
   )
     .bind(
       req.title,
       req.details ?? null,
       req.company ?? null,
+      req.contact ?? null,
       req.priority ?? 'normal',
       req.due_date ?? null,
       req.created_by,
@@ -159,6 +162,129 @@ export async function createShipment(
 export async function cancelShipment(env: Env, id: number): Promise<ShipmentRow | null> {
   await env.DB.prepare("UPDATE shipments SET status = 'cancelled' WHERE id = ?1").bind(id).run();
   return env.DB.prepare('SELECT * FROM shipments WHERE id = ?1').bind(id).first<ShipmentRow>();
+}
+
+// --- Customer directory (contacts = people, companies = who they request for) ---
+
+export interface DirectoryRow {
+  id: number;
+  name: string;
+  created_at: string;
+}
+
+export type DirectoryKind = 'contacts' | 'companies';
+
+// Table names are interpolated into SQL, so they come only from this allowlist.
+function directoryTable(kind: DirectoryKind): string {
+  return kind === 'contacts' ? 'contacts' : 'companies';
+}
+
+export async function listDirectory(env: Env, kind: DirectoryKind): Promise<DirectoryRow[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM ${directoryTable(kind)} ORDER BY name COLLATE NOCASE ASC`
+  ).all<DirectoryRow>();
+  return results;
+}
+
+/** Add a directory entry; returns 'duplicate' if the name already exists (case-insensitive). */
+export async function addDirectoryEntry(
+  env: Env,
+  kind: DirectoryKind,
+  name: string
+): Promise<DirectoryRow | 'duplicate'> {
+  try {
+    const result = await env.DB.prepare(
+      `INSERT INTO ${directoryTable(kind)} (name, created_at) VALUES (?1, ?2)`
+    )
+      .bind(name, new Date().toISOString())
+      .run();
+    return { id: result.meta.last_row_id as number, name, created_at: '' };
+  } catch (err) {
+    if (String(err).includes('UNIQUE')) return 'duplicate';
+    throw err;
+  }
+}
+
+export async function getDirectoryEntryById(
+  env: Env,
+  kind: DirectoryKind,
+  id: number
+): Promise<DirectoryRow | null> {
+  return env.DB.prepare(`SELECT * FROM ${directoryTable(kind)} WHERE id = ?1`).bind(id).first<DirectoryRow>();
+}
+
+export async function getDirectoryEntryByName(
+  env: Env,
+  kind: DirectoryKind,
+  name: string
+): Promise<DirectoryRow | null> {
+  return env.DB.prepare(`SELECT * FROM ${directoryTable(kind)} WHERE name = ?1 COLLATE NOCASE`)
+    .bind(name)
+    .first<DirectoryRow>();
+}
+
+/** Remove an entry by numeric id or exact name (case-insensitive). Returns the removed row. */
+export async function removeDirectoryEntry(
+  env: Env,
+  kind: DirectoryKind,
+  idOrName: string
+): Promise<DirectoryRow | null> {
+  const table = directoryTable(kind);
+  const row = /^\d+$/.test(idOrName)
+    ? await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?1`).bind(Number(idOrName)).first<DirectoryRow>()
+    : await getDirectoryEntryByName(env, kind, idOrName);
+  if (!row) return null;
+  await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?1`).bind(row.id).run();
+  const linkColumn = kind === 'contacts' ? 'contact_id' : 'company_id';
+  await env.DB.prepare(`DELETE FROM contact_companies WHERE ${linkColumn} = ?1`).bind(row.id).run();
+  return row;
+}
+
+/** Link a contact to a company (idempotent). */
+export async function linkContactCompany(env: Env, contactId: number, companyId: number): Promise<void> {
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO contact_companies (contact_id, company_id) VALUES (?1, ?2)'
+  )
+    .bind(contactId, companyId)
+    .run();
+}
+
+export async function unlinkContactCompany(env: Env, contactId: number, companyId: number): Promise<void> {
+  await env.DB.prepare('DELETE FROM contact_companies WHERE contact_id = ?1 AND company_id = ?2')
+    .bind(contactId, companyId)
+    .run();
+}
+
+/** Companies linked to a contact (by contact name, case-insensitive). Empty = no links. */
+export async function companiesForContact(env: Env, contactName: string): Promise<DirectoryRow[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT c.* FROM companies c
+     JOIN contact_companies cc ON cc.company_id = c.id
+     JOIN contacts p ON p.id = cc.contact_id
+     WHERE p.name = ?1 COLLATE NOCASE
+     ORDER BY c.name COLLATE NOCASE ASC`
+  )
+    .bind(contactName)
+    .all<DirectoryRow>();
+  return results;
+}
+
+/**
+ * Canonicalize free-typed company text against the directory: an exact
+ * (case-insensitive) match wins; otherwise a unique substring match; otherwise
+ * null (caller keeps the raw text).
+ */
+export async function matchCompany(env: Env, text: string): Promise<string | null> {
+  const exact = await env.DB.prepare('SELECT name FROM companies WHERE name = ?1 COLLATE NOCASE')
+    .bind(text)
+    .first<{ name: string }>();
+  if (exact) return exact.name;
+  const { results } = await env.DB.prepare(
+    "SELECT name FROM companies WHERE name LIKE '%' || ?1 || '%' LIMIT 2"
+  )
+    .bind(text)
+    .all<{ name: string }>();
+  return results.length === 1 ? results[0].name : null;
 }
 
 /** Remember a Slack user's display name (used by the wallboard). */

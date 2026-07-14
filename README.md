@@ -4,7 +4,7 @@ A Slack app for coordinating a fulfillment team remotely. Requests come in throu
 
 ## What it does
 
-- **Request tracking** — log requests with a customer/company, due date, and priority. Each one becomes a card in the team channel with Claim / In progress / Done buttons.
+- **Ticket tracking** — every request gets a sequential ticket number (REQ-0001, …) with a customer, company, due date, and priority, picked from managed dropdown lists. Each one becomes a card in the team channel with Claim / In progress / Done buttons.
 - **Shipping calendar** — schedule future shipments and see what ships today, this week, or this month.
 - **Morning digest** — a daily channel post summarizing what's overdue, due today, still open, and shipping soon.
 - **Warehouse wallboard** — a live, auto-refreshing web page of the open queue and shipping calendar, made for a TV on the warehouse floor.

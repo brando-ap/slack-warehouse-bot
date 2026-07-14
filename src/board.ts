@@ -2,8 +2,9 @@
 // meant for a TV in the warehouse. Dark theme, large type, no interaction.
 // Access requires ?key=<BOARD_KEY> so the URL isn't guessable.
 
-import { getUserNames, listOpenRequests, listShipments, type RequestRow, type ShipmentRow } from './db';
+import { getUserNames, listOpenRequests, listShipments, type RequestRow } from './db';
 import { addDays, daysUntil, formatDate, todayInTZ } from './dates';
+import { ticketRef } from './format';
 
 function escHtml(text: string): string {
   return text
@@ -64,14 +65,15 @@ export async function renderBoard(env: Env, url: URL): Promise<Response> {
             ? `<span class="meta">due ${escHtml(formatDate(r.due_date))}</span>`
             : '<span class="meta">no due date</span>';
     const assignee = who(r.assigned_to);
+    const customer = [r.company, r.contact].filter(Boolean).join(' — ');
     return `<li>
       <div class="row-main">
-        <span class="rid">#${r.id}</span>
+        <span class="rid">${ticketRef(r.id)}</span>
         <span class="rtitle">${escHtml(r.title)}</span>
         ${PRIORITY_LABEL[r.priority] ?? ''}
       </div>
       <div class="row-sub">
-        ${r.company ? `<span class="company">${escHtml(r.company)}</span>` : ''}
+        ${customer ? `<span class="company">${escHtml(customer)}</span>` : ''}
         ${status}
         ${assignee ? `<span class="meta">👤 ${assignee}${r.status === 'in_progress' ? ' (working)' : ''}</span>` : '<span class="meta">unclaimed</span>'}
       </div>
