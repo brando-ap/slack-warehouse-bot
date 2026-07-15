@@ -1,12 +1,15 @@
 // Fulfillment Assistant — Slack app on Cloudflare Workers.
 //
-// Endpoints (configured in the Slack app manifest):
-//   POST /slack/commands      slash commands
-//   POST /slack/interactions  buttons + modal submissions
-//   POST /slack/events        Events API (App Home opened)
+// Endpoints:
+//   POST /slack/commands      slash commands           (Slack manifest)
+//   POST /slack/interactions  buttons + modals         (Slack manifest)
+//   POST /slack/events        Events API / App Home    (Slack manifest)
+//   GET  /api/board           wallboard data           (React app polls this)
+//   POST /api/board/action    wallboard claim/done     (React app)
+// The wallboard itself is a static React app (board/dist) served from "/".
 // Cron: hourly, posts the morning digest at DIGEST_HOUR in TIMEZONE.
 
-import { renderBoard } from './board';
+import { boardAction, boardData } from './api';
 import { handleSlashCommand } from './commands';
 import { maybeRunDigest } from './digest';
 import { publishHome } from './home';
@@ -26,20 +29,33 @@ function logError(context: string, err: unknown): void {
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
+    const url = new URL(request.url);
+
     if (request.method === 'GET') {
-      const url = new URL(request.url);
-      if (url.pathname === '/board') {
-        return renderBoard(env, url);
+      if (url.pathname === '/api/board') {
+        return boardData(env, url);
       }
-      return new Response('Fulfillment Assistant is running. 🚚', {
-        headers: { 'content-type': 'text/plain; charset=utf-8' },
-      });
+      // Old wallboard bookmark — the app now lives at the site root.
+      if (url.pathname === '/board') {
+        return Response.redirect(`${url.origin}/${url.search}`, 302);
+      }
+      if (url.pathname === '/health') {
+        return new Response('Fulfillment Assistant is running. 🚚', {
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        });
+      }
+      // Static assets (the React board) are served before the Worker runs;
+      // any GET that reaches here matched nothing.
+      return new Response('Not found', { status: 404 });
     }
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
 
-    const url = new URL(request.url);
+    if (url.pathname === '/api/board/action') {
+      return boardAction(env, request);
+    }
+
     const body = await request.text();
 
     if (!(await verifySlackSignature(env.SLACK_SIGNING_SECRET, request, body))) {

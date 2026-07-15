@@ -4,11 +4,10 @@ A Slack app for coordinating a fulfillment team remotely. Requests come in throu
 
 ## What it does
 
-- **Ticket tracking** — every request gets a sequential ticket number (REQ-0001, …) with a customer, company, due date, and priority, picked from managed dropdown lists. Each one becomes a card in the team channel with Claim / In progress / Done buttons.
-- **Shipping calendar** — schedule future shipments and see what ships today, this week, or this month.
-- **Morning digest** — a daily channel post summarizing what's overdue, due today, still open, and shipping soon.
-- **Warehouse wallboard** — a live, auto-refreshing web page of the open queue and shipping calendar, made for a TV on the warehouse floor.
+- **Ticket tracking** — every request gets a sequential ticket number (REQ-0001, …) with a #category (receiving, ship, fulfillment, …), customer, company, due date, priority, and photos. Each one becomes a card in the team channel with Claim / In progress / Done buttons.
+- **Morning digest** — a daily channel post summarizing what's overdue, due today, and still open.
+- **Warehouse wallboard** — a live React app for a TV or touchscreen on the warehouse floor: urgency lanes, category filters, an overdue alert banner, and tap-to-Claim/Done that syncs back into Slack.
 
 ## How it's built
 
-TypeScript on Cloudflare Workers, with a D1 (SQLite) database and an hourly cron trigger for the digest. Slack talks to the Worker through slash commands and interactive components; no server to maintain.
+A TypeScript Worker on Cloudflare with a D1 (SQLite) database and an hourly cron trigger for the digest; the wallboard is a React app (Vite) served as static assets by the same Worker and driven by a small JSON API. Slack talks to the Worker through slash commands, interactive components, and the Events API; no server to maintain.

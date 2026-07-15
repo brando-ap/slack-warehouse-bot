@@ -1,8 +1,8 @@
 // Scheduled morning digest. The cron trigger fires every hour; this posts
 // only when the current hour in TIMEZONE matches DIGEST_HOUR.
 
-import { listOpenRequests, listShipments } from './db';
-import { addDays, hourInTZ, todayInTZ } from './dates';
+import { listOpenRequests } from './db';
+import { hourInTZ } from './dates';
 import { digestBlocks } from './format';
 import { slackApi } from './slack';
 
@@ -12,13 +12,8 @@ export async function maybeRunDigest(env: Env): Promise<void> {
   const digestHour = Number(env.DIGEST_HOUR || '8');
   if (hourInTZ(env.TIMEZONE) !== digestHour) return;
 
-  const today = todayInTZ(env.TIMEZONE);
-  const [open, shipments] = await Promise.all([
-    listOpenRequests(env),
-    listShipments(env, today, addDays(today, 7)),
-  ]);
-
-  const { text, blocks } = digestBlocks(open, shipments, env.TIMEZONE);
+  const open = await listOpenRequests(env);
+  const { text, blocks } = digestBlocks(open, env.TIMEZONE);
   await slackApi(env, 'chat.postMessage', {
     channel: env.DIGEST_CHANNEL,
     text,

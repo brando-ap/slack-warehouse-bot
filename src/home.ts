@@ -31,17 +31,20 @@ const MAX_CONTACT_ROWS = 60;
 /** Build and publish the Home tab for one user. Call after every change so the tab stays fresh. */
 export async function publishHome(env: Env, userId: string): Promise<void> {
   const today = todayInTZ(env.TIMEZONE);
-  const [contacts, companies, open, shipsToday] = await Promise.all([
+  const [contacts, companies, categories, open] = await Promise.all([
     db.listDirectory(env, 'contacts'),
     db.listDirectory(env, 'companies'),
+    db.listDirectory(env, 'categories'),
     db.listOpenRequests(env),
-    db.listShipments(env, today, today),
   ]);
+  const dueToday = open.filter((r) => r.due_date === today).length;
 
   const blocks: unknown[] = [
     { type: 'header', text: pt('📦 Fulfillment Assistant') },
     context(
-      `📋 *${open.length}* open ticket${open.length === 1 ? '' : 's'}  ·  🚚 *${shipsToday.length}* shipping today  ·  file tickets with \`/request\` in a channel`
+      `📋 *${open.length}* open ticket${open.length === 1 ? '' : 's'}  ·  ⏰ *${dueToday}* due today  ·  🏷 ${
+        categories.length ? categories.map((c) => `#${c.name}`).join(' · ') : 'no categories yet'
+      }`
     ),
     { type: 'divider' },
     {

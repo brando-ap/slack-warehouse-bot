@@ -8,6 +8,12 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+  // The React wallboard, built by `npm run build:board` (runs automatically
+  // as part of `npm run deploy`). Served at the site root; requests that
+  // don't match a built file fall through to the Worker.
+  "assets": {
+    "directory": "board/dist"
+  },
   // Runs every hour; the code checks whether it's DIGEST_HOUR in TIMEZONE
   // before actually posting the morning digest.
   "triggers": {

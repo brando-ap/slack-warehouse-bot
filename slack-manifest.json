@@ -58,17 +58,10 @@
         "should_escape": false
       },
       {
-        "command": "/ship",
+        "command": "/category",
         "url": "https://fulfillment-assistant.brandon-taylor2399.workers.dev/slack/commands",
-        "description": "Add a shipment to the calendar",
-        "usage_hint": "[<date> <description>]",
-        "should_escape": false
-      },
-      {
-        "command": "/shipping",
-        "url": "https://fulfillment-assistant.brandon-taylor2399.workers.dev/slack/commands",
-        "description": "View the shipping calendar",
-        "usage_hint": "[days]",
+        "description": "Manage ticket #categories (receiving, ship, fulfillment, ...)",
+        "usage_hint": "[add <name> | remove <name> | list]",
         "should_escape": false
       }
     ]

@@ -1,7 +1,7 @@
 // Block Kit builders — everything the bot renders in Slack lives here.
 
-import type { DirectoryRow, RequestRow, ShipmentRow } from './db';
-import { dueLabel, daysUntil, formatDate, todayInTZ } from './dates';
+import type { DirectoryRow, RequestRow } from './db';
+import { dueLabel, formatDate, todayInTZ } from './dates';
 import { photoCount } from './photos';
 
 /** Ticket-style reference for a request id: 42 -> "REQ-0042". */
@@ -59,6 +59,7 @@ export function requestBlocks(req: RequestRow, tz: string): unknown[] {
 
   const lines = [`${priorityEmoji(req.priority)} *${ticketRef(req.id)} · ${esc(req.title)}*`];
   const customer = [
+    req.category ? `🏷 *#${esc(req.category)}*` : '',
     req.company ? `🏢 *${esc(req.company)}*` : '',
     req.contact ? `👤 ${esc(req.contact)}` : '',
   ]
@@ -95,6 +96,7 @@ export function requestBlocks(req: RequestRow, tz: string): unknown[] {
 /** One-line summary of a request for lists and digests. */
 export function requestLine(req: RequestRow, tz: string): string {
   const parts = [`${priorityEmoji(req.priority)} *${ticketRef(req.id)}*  ${esc(req.title)}`];
+  if (req.category) parts.push(`#${esc(req.category)}`);
   if (req.company) parts.push(`🏢 ${esc(req.company)}`);
   if (req.due_date) parts.push(`due ${dueLabel(req.due_date, tz)}`);
   if (req.assigned_to) parts.push(`<@${req.assigned_to}>`);
@@ -141,56 +143,19 @@ export function openRequestsBlocks(requests: RequestRow[], tz: string): unknown[
   return blocks;
 }
 
-/** The /shipping calendar view, grouped by date. */
-export function shipmentsBlocks(shipments: ShipmentRow[], days: number, tz: string): unknown[] {
-  if (shipments.length === 0) {
-    return [mrkdwn(`🚚 *Nothing scheduled to ship in the next ${days} days.* Use \`/ship\` to add something.`)];
-  }
-
-  const today = todayInTZ(tz);
-  const blocks: unknown[] = [mrkdwn(`*🚚 Shipping calendar — next ${days} days*`)];
-  let currentDate = '';
-  let lines: string[] = [];
-  const flush = () => {
-    if (lines.length > 0) blocks.push(...lineSections(lines));
-    lines = [];
-  };
-  for (const s of shipments) {
-    if (s.ship_date !== currentDate) {
-      flush();
-      currentDate = s.ship_date;
-      const suffix = s.ship_date === today ? '  ⬅️ today' : '';
-      blocks.push(mrkdwn(`*${formatDate(s.ship_date)}*${suffix}`));
-    }
-    lines.push(`  •  *#${s.id}*  ${esc(s.description)}${s.notes ? ` — _${esc(s.notes)}_` : ''}`);
-  }
-  flush();
-  blocks.push({
-    type: 'context',
-    elements: [{ type: 'mrkdwn', text: 'Add with `/ship <date> <description>` · remove with `/ship remove <id>`' }],
-  });
-  return blocks;
-}
-
 /** The scheduled morning digest. */
-export function digestBlocks(
-  open: RequestRow[],
-  shipments: ShipmentRow[],
-  tz: string
-): { text: string; blocks: unknown[] } {
+export function digestBlocks(open: RequestRow[], tz: string): { text: string; blocks: unknown[] } {
   const today = todayInTZ(tz);
   const overdue = open.filter((r) => r.due_date && r.due_date < today);
   const dueToday = open.filter((r) => r.due_date === today);
   const rest = open.filter((r) => !r.due_date || r.due_date > today);
-  const shipsToday = shipments.filter((s) => s.ship_date === today);
-  const shipsSoon = shipments.filter((s) => s.ship_date > today);
 
   const blocks: unknown[] = [
     { type: 'header', text: pt(`☀️ Fulfillment digest — ${formatDate(today)}`) },
   ];
 
-  if (open.length === 0 && shipments.length === 0) {
-    blocks.push(mrkdwn('✨ No open requests and nothing shipping this week. Enjoy the quiet!'));
+  if (open.length === 0) {
+    blocks.push(mrkdwn('✨ No open tickets. Enjoy the quiet!'));
     return { text: 'Fulfillment digest: all clear', blocks };
   }
 
@@ -210,28 +175,14 @@ export function digestBlocks(
     blocks.push(mrkdwn(`*📋 Also open (${rest.length})*\n${limited(rest, 8).join('\n')}`));
   }
 
-  if (shipsToday.length > 0 || shipsSoon.length > 0) {
-    blocks.push({ type: 'divider' });
-    if (shipsToday.length > 0) {
-      const lines = shipsToday.map((s) => `  •  *#${s.id}*  ${esc(s.description)}`);
-      blocks.push(mrkdwn(`*🚚 Shipping TODAY (${shipsToday.length})*\n${lines.join('\n')}`));
-    }
-    if (shipsSoon.length > 0) {
-      const lines = shipsSoon.map(
-        (s) => `  •  *${formatDate(s.ship_date)}* — ${esc(s.description)} (${daysUntil(s.ship_date, tz)}d)`
-      );
-      blocks.push(mrkdwn(`*📦 Shipping in the next 7 days*\n${lines.join('\n')}`));
-    }
-  }
-
   blocks.push({
     type: 'context',
-    elements: [{ type: 'mrkdwn', text: '`/request` new · `/requests` list · `/ship` schedule · `/shipping` calendar' }],
+    elements: [{ type: 'mrkdwn', text: '`/request` new · `/requests` list · `/done <id>` close · `/requests #ship` filter by category' }],
   });
 
-  const summary = `Fulfillment digest: ${open.length} open request${open.length === 1 ? '' : 's'}${
+  const summary = `Fulfillment digest: ${open.length} open ticket${open.length === 1 ? '' : 's'}${
     overdue.length ? `, ${overdue.length} overdue` : ''
-  }${shipsToday.length ? `, ${shipsToday.length} shipping today` : ''}`;
+  }${dueToday.length ? `, ${dueToday.length} due today` : ''}`;
   return { text: summary, blocks };
 }
 
@@ -251,6 +202,7 @@ export interface RequestModalState {
   priority?: string | null;
   contact?: string | null;
   company?: string | null;
+  category?: string | null;
 }
 
 const PRIORITY_OPTIONS: Array<[label: string, value: string]> = [
@@ -269,10 +221,30 @@ export function newRequestModal(
   channelId: string,
   contacts: DirectoryRow[],
   companies: DirectoryRow[],
+  categories: DirectoryRow[],
   state: RequestModalState = {},
   companiesFiltered = false
 ): unknown {
   const customerBlocks: unknown[] = [];
+  if (categories.length > 0) {
+    const selectedCategory = state.category?.slice(0, 75);
+    const keepCategory = selectedCategory && categories.some((c) => c.name.slice(0, 75) === selectedCategory);
+    customerBlocks.push({
+      type: 'input',
+      block_id: 'category_sel',
+      optional: true,
+      label: pt('Category'),
+      element: {
+        type: 'static_select',
+        action_id: 'v',
+        placeholder: pt('e.g. #receiving, #ship — add more with /category add'),
+        options: categories.slice(0, 100).map((c) => option(`#${c.name}`.slice(0, 75), c.name.slice(0, 75))),
+        ...(keepCategory
+          ? { initial_option: option(`#${selectedCategory}`.slice(0, 75), selectedCategory) }
+          : {}),
+      },
+    });
+  }
   if (contacts.length > 0) {
     const selectedContact = state.contact?.slice(0, 75);
     customerBlocks.push({
@@ -400,40 +372,3 @@ export function newRequestModal(
   };
 }
 
-/** Modal for scheduling a shipment via /ship with no arguments. */
-export function newShipmentModal(channelId: string): unknown {
-  return {
-    type: 'modal',
-    callback_id: 'new_shipment',
-    private_metadata: channelId,
-    title: pt('Schedule a shipment'),
-    submit: pt('Schedule'),
-    close: pt('Cancel'),
-    blocks: [
-      {
-        type: 'input',
-        block_id: 'description',
-        label: pt('What is shipping?'),
-        element: {
-          type: 'plain_text_input',
-          action_id: 'v',
-          max_length: 150,
-          placeholder: pt('e.g. Order #4512 — 6 pallets to Dallas DC'),
-        },
-      },
-      {
-        type: 'input',
-        block_id: 'ship_date',
-        label: pt('Ship date'),
-        element: { type: 'datepicker', action_id: 'v' },
-      },
-      {
-        type: 'input',
-        block_id: 'notes',
-        optional: true,
-        label: pt('Notes'),
-        element: { type: 'plain_text_input', action_id: 'v', multiline: true, max_length: 1000 },
-      },
-    ],
-  };
-}

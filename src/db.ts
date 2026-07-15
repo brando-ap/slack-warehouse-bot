@@ -1,4 +1,4 @@
-// D1 data access for requests and shipments.
+// D1 data access for requests, the customer/category directory, and users.
 
 export interface RequestRow {
   id: number;
@@ -6,6 +6,7 @@ export interface RequestRow {
   details: string | null;
   company: string | null;
   contact: string | null;
+  category: string | null;
   status: 'open' | 'in_progress' | 'done' | 'cancelled';
   priority: 'low' | 'normal' | 'high' | 'urgent';
   due_date: string | null;
@@ -18,21 +19,12 @@ export interface RequestRow {
   completed_at: string | null;
 }
 
-export interface ShipmentRow {
-  id: number;
-  ship_date: string;
-  description: string;
-  notes: string | null;
-  status: 'scheduled' | 'cancelled';
-  created_by: string;
-  created_at: string;
-}
-
 export interface NewRequest {
   title: string;
   details?: string | null;
   company?: string | null;
   contact?: string | null;
+  category?: string | null;
   priority?: string;
   due_date?: string | null;
   created_by: string;
@@ -41,14 +33,15 @@ export interface NewRequest {
 
 export async function createRequest(env: Env, req: NewRequest): Promise<RequestRow> {
   const result = await env.DB.prepare(
-    `INSERT INTO requests (title, details, company, contact, priority, due_date, created_by, channel_id, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
+    `INSERT INTO requests (title, details, company, contact, category, priority, due_date, created_by, channel_id, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
   )
     .bind(
       req.title,
       req.details ?? null,
       req.company ?? null,
       req.contact ?? null,
+      req.category ?? null,
       req.priority ?? 'normal',
       req.due_date ?? null,
       req.created_by,
@@ -94,6 +87,7 @@ export interface RequestEdits {
   due_date?: string | null;
   priority?: string;
   company?: string | null;
+  category?: string | null;
   assigned_to?: string | null;
   status?: RequestRow['status'];
 }
@@ -144,31 +138,6 @@ export async function listRecentDone(env: Env, limit = 10): Promise<RequestRow[]
   return results;
 }
 
-export async function createShipment(
-  env: Env,
-  shipDate: string,
-  description: string,
-  notes: string | null,
-  createdBy: string
-): Promise<ShipmentRow> {
-  const result = await env.DB.prepare(
-    `INSERT INTO shipments (ship_date, description, notes, created_by, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5)`
-  )
-    .bind(shipDate, description, notes, createdBy, new Date().toISOString())
-    .run();
-  const row = await env.DB.prepare('SELECT * FROM shipments WHERE id = ?1')
-    .bind(result.meta.last_row_id as number)
-    .first<ShipmentRow>();
-  if (!row) throw new Error('failed to read back created shipment');
-  return row;
-}
-
-export async function cancelShipment(env: Env, id: number): Promise<ShipmentRow | null> {
-  await env.DB.prepare("UPDATE shipments SET status = 'cancelled' WHERE id = ?1").bind(id).run();
-  return env.DB.prepare('SELECT * FROM shipments WHERE id = ?1').bind(id).first<ShipmentRow>();
-}
-
 // --- Customer directory (contacts = people, companies = who they request for) ---
 
 export interface DirectoryRow {
@@ -177,11 +146,11 @@ export interface DirectoryRow {
   created_at: string;
 }
 
-export type DirectoryKind = 'contacts' | 'companies';
+export type DirectoryKind = 'contacts' | 'companies' | 'categories';
 
 // Table names are interpolated into SQL, so they come only from this allowlist.
 function directoryTable(kind: DirectoryKind): string {
-  return kind === 'contacts' ? 'contacts' : 'companies';
+  return kind === 'contacts' ? 'contacts' : kind === 'companies' ? 'companies' : 'categories';
 }
 
 export async function listDirectory(env: Env, kind: DirectoryKind): Promise<DirectoryRow[]> {
@@ -240,8 +209,10 @@ export async function removeDirectoryEntry(
     : await getDirectoryEntryByName(env, kind, idOrName);
   if (!row) return null;
   await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?1`).bind(row.id).run();
-  const linkColumn = kind === 'contacts' ? 'contact_id' : 'company_id';
-  await env.DB.prepare(`DELETE FROM contact_companies WHERE ${linkColumn} = ?1`).bind(row.id).run();
+  if (kind !== 'categories') {
+    const linkColumn = kind === 'contacts' ? 'contact_id' : 'company_id';
+    await env.DB.prepare(`DELETE FROM contact_companies WHERE ${linkColumn} = ?1`).bind(row.id).run();
+  }
   return row;
 }
 
@@ -279,6 +250,14 @@ export async function companiesForContact(env: Env, contactName: string): Promis
  * (case-insensitive) match wins; otherwise a unique substring match; otherwise
  * null (caller keeps the raw text).
  */
+/** Exact (case-insensitive) category lookup; returns the canonical stored name. */
+export async function matchCategory(env: Env, text: string): Promise<string | null> {
+  const exact = await env.DB.prepare('SELECT name FROM categories WHERE name = ?1 COLLATE NOCASE')
+    .bind(text)
+    .first<{ name: string }>();
+  return exact?.name ?? null;
+}
+
 export async function matchCompany(env: Env, text: string): Promise<string | null> {
   const exact = await env.DB.prepare('SELECT name FROM companies WHERE name = ?1 COLLATE NOCASE')
     .bind(text)
@@ -308,14 +287,12 @@ export async function getUserNames(env: Env): Promise<Map<string, string>> {
   return new Map(results.map((r) => [r.id, r.name]));
 }
 
-/** Scheduled shipments between two dates inclusive, soonest first. */
-export async function listShipments(env: Env, fromDate: string, toDate: string): Promise<ShipmentRow[]> {
+/** completed_at timestamps of recently completed tickets (for "done today" stats). */
+export async function listCompletedSince(env: Env, sinceIso: string): Promise<string[]> {
   const { results } = await env.DB.prepare(
-    `SELECT * FROM shipments
-     WHERE status = 'scheduled' AND ship_date >= ?1 AND ship_date <= ?2
-     ORDER BY ship_date ASC, id ASC`
+    "SELECT completed_at FROM requests WHERE status = 'done' AND completed_at >= ?1"
   )
-    .bind(fromDate, toDate)
-    .all<ShipmentRow>();
-  return results;
+    .bind(sinceIso)
+    .all<{ completed_at: string }>();
+  return results.map((r) => r.completed_at);
 }

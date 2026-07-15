@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS requests (
   details TEXT,
   company TEXT,                              -- company the request is for
   contact TEXT,                              -- customer contact who requested it
+  category TEXT,                             -- #category tag (receiving, ship, fulfillment, ...)
   status TEXT NOT NULL DEFAULT 'open',       -- open | in_progress | done | cancelled
   priority TEXT NOT NULL DEFAULT 'normal',   -- low | normal | high | urgent
   due_date TEXT,                             -- YYYY-MM-DD, nullable
@@ -22,17 +23,18 @@ CREATE TABLE IF NOT EXISTS requests (
 CREATE INDEX IF NOT EXISTS idx_requests_status ON requests (status);
 CREATE INDEX IF NOT EXISTS idx_requests_due ON requests (due_date);
 
-CREATE TABLE IF NOT EXISTS shipments (
+-- #categories tickets can be tagged with. Managed with /category; new tags
+-- used in quick syntax are added automatically.
+CREATE TABLE IF NOT EXISTS categories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ship_date TEXT NOT NULL,                   -- YYYY-MM-DD
-  description TEXT NOT NULL,
-  notes TEXT,
-  status TEXT NOT NULL DEFAULT 'scheduled',  -- scheduled | cancelled
-  created_by TEXT NOT NULL,
+  name TEXT NOT NULL COLLATE NOCASE UNIQUE,
   created_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_shipments_date ON shipments (ship_date);
+INSERT OR IGNORE INTO categories (name, created_at) VALUES
+  ('receiving', datetime('now')),
+  ('ship', datetime('now')),
+  ('fulfillment', datetime('now'));
 
 -- Customer directory: contacts (people who send requests) and companies they
 -- request for. Managed with /customer and /company; feeds the /request form.

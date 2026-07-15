@@ -3,16 +3,8 @@
 // response_url or chat.postMessage.
 
 import * as db from './db';
-import { addDays, parseDueDate, formatDate, todayInTZ } from './dates';
-import {
-  esc,
-  newRequestModal,
-  newShipmentModal,
-  openRequestsBlocks,
-  requestBlocks,
-  shipmentsBlocks,
-  ticketRef,
-} from './format';
+import { parseDueDate, formatDate } from './dates';
+import { esc, newRequestModal, openRequestsBlocks, requestBlocks, ticketRef } from './format';
 import { respond, slackApi } from './slack';
 
 const REQUEST_USAGE = [
@@ -20,6 +12,7 @@ const REQUEST_USAGE = [
   '• `/request` — open a form (easiest)',
   '• `/request Pull 3 pallets of SKU-1234` — quick add',
   '• `/request Restock bay 12 due tomorrow` — with a due date (`due today`, `due friday`, `due 7/20`)',
+  '• `/request Unload truck 14 #receiving` — tag a category (`#ship`, `#fulfillment`, … — new tags are saved automatically)',
   '• `/request Stage order #99 for:Acme Logistics due 7/20` — tag the customer/company',
   '• `/request Rush order #99 due today !urgent` — priority: `!low` `!high` `!urgent`',
   '_Order matters: title, then `for:company`, then `due`. Change things later with `/edit`._',
@@ -29,19 +22,12 @@ const EDIT_USAGE = [
   '*How to use `/edit`* — change a request after it exists (find ids with `/requests`)',
   '• `/edit 12 due friday` — change the due date (`due none` clears it)',
   '• `/edit 12 !urgent` — change priority (`!low` `!normal` `!high` `!urgent`)',
+  '• `/edit 12 #receiving` — change the category (`#none` clears it)',
   '• `/edit 12 for:Acme Logistics` — set the customer/company (`for:none` clears it)',
   '• `/edit 12 assign @dave` — reassign (also `assign me`, `assign none`)',
   '• `/edit 12 title Corrected description here` — rewrite the title',
   '• `/edit 12 cancel` — cancel a request created by mistake',
   'Combine several: `/edit 12 assign me !high due friday for:Acme`',
-].join('\n');
-
-const SHIP_USAGE = [
-  '*How to use `/ship`*',
-  '• `/ship` — open a form (easiest)',
-  '• `/ship 7/20 Order #4512 — 6 pallets to Dallas` — quick add',
-  '• `/ship remove 3` — take shipment #3 off the calendar',
-  '• `/shipping` — see the calendar (or `/shipping 60` for 60 days out)',
 ].join('\n');
 
 export async function handleSlashCommand(env: Env, form: Record<string, string>): Promise<void> {
@@ -62,10 +48,8 @@ export async function handleSlashCommand(env: Env, form: Record<string, string>)
       return handleDirectory(env, form, 'contacts');
     case '/company':
       return handleDirectory(env, form, 'companies');
-    case '/ship':
-      return handleShip(env, form);
-    case '/shipping':
-      return handleShipping(env, form);
+    case '/category':
+      return handleDirectory(env, form, 'categories');
     default:
       return respond(form.response_url, { text: `Unknown command: ${form.command}` });
   }
@@ -95,17 +79,26 @@ function notPostedHint(error?: string): string {
     : `I couldn't post the message (Slack said: \`${error ?? 'unknown'}\`).`;
 }
 
-/** Parse "/request <title> [for:<company>] [due <date>] [!priority]" quick syntax. */
+/** Parse "/request <title> [#category] [for:<company>] [due <date>] [!priority]" quick syntax. */
 function parseQuickRequest(
   text: string,
   tz: string
-): { title: string; priority: string; due: string | null; company: string | null } {
+): { title: string; priority: string; due: string | null; company: string | null; category: string | null } {
   let working = text;
   let priority = 'normal';
   const priMatch = working.match(/\s*!(urgent|high|normal|low)\b/i);
   if (priMatch) {
     priority = priMatch[1].toLowerCase();
     working = working.replace(priMatch[0], ' ');
+  }
+
+  // #category must start with a letter so ticket-ish text like "Order #4498"
+  // never reads as a category.
+  let category: string | null = null;
+  const catMatch = working.match(/(^|\s)#([a-z][\w-]*)/i);
+  if (catMatch) {
+    category = catMatch[2].toLowerCase();
+    working = working.replace(catMatch[0], ' ');
   }
 
   // "due" and "for:" both anchor to the end of the text, so try due, then
@@ -130,7 +123,20 @@ function parseQuickRequest(
   }
   tryDue();
 
-  return { title: working.trim().replace(/\s+/g, ' '), priority, due, company };
+  return { title: working.trim().replace(/\s+/g, ' '), priority, due, company, category };
+}
+
+/**
+ * Canonicalize a category against the saved list (case-insensitive); unknown
+ * tags are added automatically so the vocabulary grows as the team uses it.
+ */
+async function resolveCategory(env: Env, raw: string | null): Promise<string | null> {
+  if (!raw) return null;
+  const name = raw.toLowerCase().slice(0, 40);
+  const existing = await db.matchCategory(env, name);
+  if (existing) return existing;
+  await db.addDirectoryEntry(env, 'categories', name);
+  return name;
 }
 
 async function handleRequest(env: Env, form: Record<string, string>): Promise<void> {
@@ -141,13 +147,14 @@ async function handleRequest(env: Env, form: Record<string, string>): Promise<vo
   }
 
   if (!text) {
-    const [contacts, companies] = await Promise.all([
+    const [contacts, companies, categories] = await Promise.all([
       db.listDirectory(env, 'contacts'),
       db.listDirectory(env, 'companies'),
+      db.listDirectory(env, 'categories'),
     ]);
     const res = await slackApi(env, 'views.open', {
       trigger_id: form.trigger_id,
-      view: newRequestModal(form.channel_id, contacts, companies),
+      view: newRequestModal(form.channel_id, contacts, companies, categories),
     });
     if (!res.ok) {
       await respond(form.response_url, {
@@ -157,7 +164,7 @@ async function handleRequest(env: Env, form: Record<string, string>): Promise<vo
     return;
   }
 
-  const { title, priority, due, company } = parseQuickRequest(text, env.TIMEZONE);
+  const { title, priority, due, company, category } = parseQuickRequest(text, env.TIMEZONE);
   if (!title) {
     return respond(form.response_url, { text: REQUEST_USAGE });
   }
@@ -170,6 +177,7 @@ async function handleRequest(env: Env, form: Record<string, string>): Promise<vo
     priority,
     due_date: due,
     company: canonical ?? company,
+    category: await resolveCategory(env, category),
     created_by: form.user_id,
     channel_id: form.channel_id,
   });
@@ -202,13 +210,16 @@ async function handleRequestList(env: Env, form: Record<string, string>): Promis
 
   let open = await db.listOpenRequests(env);
 
-  // Any other text filters the list by company or title, e.g. `/requests acme`
+  // Any other text filters the list by category, company, contact, or title —
+  // e.g. `/requests acme` or `/requests #ship`
   if (text) {
+    const needle = text.replace(/^#/, '');
     open = open.filter(
       (r) =>
-        r.title.toLowerCase().includes(text) ||
-        (r.company ?? '').toLowerCase().includes(text) ||
-        (r.contact ?? '').toLowerCase().includes(text)
+        r.title.toLowerCase().includes(needle) ||
+        (r.company ?? '').toLowerCase().includes(needle) ||
+        (r.contact ?? '').toLowerCase().includes(needle) ||
+        (r.category ?? '').toLowerCase().includes(needle)
     );
     if (open.length === 0) {
       return respond(form.response_url, {
@@ -286,6 +297,18 @@ async function handleEdit(env: Env, form: Record<string, string>): Promise<void>
       rest = rest.replace(priMatch[0], ' ');
     }
 
+    const catMatch = rest.match(/(^|\s)#([a-z][\w-]*)\b/i);
+    if (catMatch) {
+      rest = rest.replace(catMatch[0], ' ');
+      if (/^none$/i.test(catMatch[2])) {
+        edits.category = null;
+        changes.push('category cleared');
+      } else {
+        edits.category = await resolveCategory(env, catMatch[2]);
+        changes.push(`category → #${edits.category}`);
+      }
+    }
+
     const assignMatch = rest.match(/\bassign\s+(<@(\w+)(?:\|[^>]*)?>|me|none)/i);
     if (assignMatch) {
       rest = rest.replace(assignMatch[0], ' ');
@@ -359,6 +382,7 @@ async function handleEdit(env: Env, form: Record<string, string>): Promise<void>
 const DIRECTORY_LABELS: Record<db.DirectoryKind, { singular: string; command: string; hint: string }> = {
   contacts: { singular: 'customer', command: '/customer', hint: 'the people who send you requests' },
   companies: { singular: 'company', command: '/company', hint: 'the companies requests are for' },
+  categories: { singular: 'category', command: '/category', hint: 'the #categories tickets can be tagged with' },
 };
 
 async function handleDirectory(env: Env, form: Record<string, string>, kind: db.DirectoryKind): Promise<void> {
@@ -426,7 +450,14 @@ async function handleDirectory(env: Env, form: Record<string, string>, kind: db.
 
   const addMatch = text.match(/^add\s+(.+)$/i);
   if (addMatch) {
-    const name = addMatch[1].trim().replace(/\s+/g, ' ').slice(0, 70);
+    // Categories are stored as bare lowercase tags: "#Receiving" -> "receiving"
+    const name =
+      kind === 'categories'
+        ? addMatch[1].trim().replace(/^#/, '').toLowerCase().replace(/[^\w-]/g, '').slice(0, 40)
+        : addMatch[1].trim().replace(/\s+/g, ' ').slice(0, 70);
+    if (!name) {
+      return respond(form.response_url, { text: usage });
+    }
     const added = await db.addDirectoryEntry(env, kind, name);
     return respond(form.response_url, {
       text:
@@ -438,7 +469,11 @@ async function handleDirectory(env: Env, form: Record<string, string>, kind: db.
 
   const removeMatch = text.match(/^(?:remove|delete)\s+(.+)$/i);
   if (removeMatch) {
-    const removed = await db.removeDirectoryEntry(env, kind, removeMatch[1].trim());
+    const target =
+      kind === 'categories'
+        ? removeMatch[1].trim().replace(/^#/, '').toLowerCase()
+        : removeMatch[1].trim();
+    const removed = await db.removeDirectoryEntry(env, kind, target);
     return respond(form.response_url, {
       text: removed
         ? `🗑️ Removed *${esc(removed.name)}* from the ${singular} list.`
@@ -460,7 +495,7 @@ async function handleDirectory(env: Env, form: Record<string, string>, kind: db.
               return `${r.id}. ${esc(r.name)}${suffix}`;
             })
           )
-        : rows.map((r) => `${r.id}. ${esc(r.name)}`);
+        : rows.map((r) => `${r.id}. ${kind === 'categories' ? '#' : ''}${esc(r.name)}`);
     return respond(form.response_url, {
       text: `*${singular[0].toUpperCase() + singular.slice(1)} list (${rows.length})*\n${lines.join('\n')}`,
     });
@@ -469,76 +504,3 @@ async function handleDirectory(env: Env, form: Record<string, string>, kind: db.
   return respond(form.response_url, { text: usage });
 }
 
-async function handleShip(env: Env, form: Record<string, string>): Promise<void> {
-  const text = (form.text ?? '').trim();
-
-  if (text.toLowerCase() === 'help') {
-    return respond(form.response_url, { text: SHIP_USAGE });
-  }
-
-  if (!text) {
-    const res = await slackApi(env, 'views.open', {
-      trigger_id: form.trigger_id,
-      view: newShipmentModal(form.channel_id),
-    });
-    if (!res.ok) {
-      await respond(form.response_url, {
-        text: `⚠️ Couldn't open the form (\`${res.error}\`). Try the quick syntax instead:\n${SHIP_USAGE}`,
-      });
-    }
-    return;
-  }
-
-  const removeMatch = text.match(/^(?:remove|cancel|delete)\s+#?(\d+)$/i);
-  if (removeMatch) {
-    const id = Number(removeMatch[1]);
-    const shipment = await db.cancelShipment(env, id);
-    return respond(form.response_url, {
-      text: shipment
-        ? `🗑️ Removed shipment *#${id} · ${esc(shipment.description)}* from the calendar.`
-        : `Couldn't find shipment *#${id}*.`,
-    });
-  }
-
-  const spaceIdx = text.indexOf(' ');
-  const dateToken = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
-  const description = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
-  const shipDate = parseDueDate(dateToken, env.TIMEZONE);
-
-  if (!shipDate || !description) {
-    return respond(form.response_url, { text: SHIP_USAGE });
-  }
-
-  const shipment = await db.createShipment(env, shipDate, description, null, form.user_id);
-  const res = await slackApi(env, 'chat.postMessage', {
-    channel: form.channel_id,
-    text: `🚚 Shipment scheduled — #${shipment.id}: ${shipment.description} on ${formatDate(shipDate)}`,
-    blocks: [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `🚚 *Shipment scheduled* — *#${shipment.id}*  ${esc(shipment.description)}\n📅 Ships *${formatDate(shipDate)}* (added by <@${form.user_id}>)`,
-        },
-      },
-    ],
-  });
-  if (res.ok) {
-    await respond(form.response_url, { text: `✅ Added to the shipping calendar for *${formatDate(shipDate)}*.` });
-  } else {
-    await respond(form.response_url, {
-      text: `✅ Shipment *#${shipment.id}* saved for *${formatDate(shipDate)}* — but ${notPostedHint(res.error)}`,
-    });
-  }
-}
-
-async function handleShipping(env: Env, form: Record<string, string>): Promise<void> {
-  const requested = Number((form.text ?? '').trim());
-  const days = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), 365) : 30;
-  const today = todayInTZ(env.TIMEZONE);
-  const shipments = await db.listShipments(env, today, addDays(today, days));
-  return respond(form.response_url, {
-    text: `${shipments.length} shipments in the next ${days} days`,
-    blocks: shipmentsBlocks(shipments, days, env.TIMEZONE),
-  });
-}

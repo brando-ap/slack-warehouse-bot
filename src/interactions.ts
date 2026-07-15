@@ -7,7 +7,6 @@ import { esc, newRequestModal, requestBlocks, ticketRef } from './format';
 import { addDirectoryModal, linkCompaniesModal, publishHome, removeCompanyModal } from './home';
 import { attachPhotos, type ModalFile } from './photos';
 import { dmUser, slackApi } from './slack';
-import { formatDate } from './dates';
 
 interface BlockAction {
   action_id: string;
@@ -111,9 +110,10 @@ async function handleContactSelected(
   const values = view.state.values;
   const contactName = action.selected_option?.value ?? null;
 
-  const [contacts, allCompanies] = await Promise.all([
+  const [contacts, allCompanies, categories] = await Promise.all([
     db.listDirectory(env, 'contacts'),
     db.listDirectory(env, 'companies'),
+    db.listDirectory(env, 'categories'),
   ]);
   const linked = contactName ? await db.companiesForContact(env, contactName) : [];
   const companies = linked.length > 0 ? linked : allCompanies;
@@ -122,6 +122,7 @@ async function handleContactSelected(
   const state = {
     contact: contactName,
     company: values.company_sel?.v?.selected_option?.value ?? null,
+    category: values.category_sel?.v?.selected_option?.value ?? null,
     title: values.title?.v?.value ?? null,
     details: values.details?.v?.value ?? null,
     due: values.due?.v?.selected_date ?? null,
@@ -130,7 +131,7 @@ async function handleContactSelected(
 
   await slackApi(env, 'views.update', {
     view_id: view.id,
-    view: newRequestModal(view.private_metadata, contacts, companies, state, linked.length > 0),
+    view: newRequestModal(view.private_metadata, contacts, companies, categories, state, linked.length > 0),
   });
 }
 
@@ -195,6 +196,7 @@ async function handleViewSubmission(env: Env, payload: InteractionPayload): Prom
       title: values.title?.v?.value?.trim() ?? '(untitled)',
       company: company || null,
       contact: values.contact_sel?.v?.selected_option?.value ?? null,
+      category: values.category_sel?.v?.selected_option?.value ?? null,
       details: values.details?.v?.value?.trim() || null,
       due_date: values.due?.v?.selected_date ?? null,
       priority: values.priority?.v?.selected_option?.value ?? 'normal',
@@ -286,36 +288,5 @@ async function handleViewSubmission(env: Env, payload: InteractionPayload): Prom
     if (companyId) await db.removeDirectoryEntry(env, 'companies', companyId);
     await publishHome(env, userId);
     return;
-  }
-
-  if (view.callback_id === 'new_shipment') {
-    const description = values.description?.v?.value?.trim() ?? '(untitled)';
-    const shipDate = values.ship_date?.v?.selected_date;
-    if (!shipDate) return;
-    const notes = values.notes?.v?.value?.trim() || null;
-    const shipment = await db.createShipment(env, shipDate, description, notes, userId);
-    const res = await slackApi(env, 'chat.postMessage', {
-      channel: channelId,
-      text: `🚚 Shipment scheduled — #${shipment.id}: ${description} on ${formatDate(shipDate)}`,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text:
-              `🚚 *Shipment scheduled* — *#${shipment.id}*  ${esc(description)}\n` +
-              `📅 Ships *${formatDate(shipDate)}*${notes ? `\n_${esc(notes)}_` : ''} (added by <@${userId}>)`,
-          },
-        },
-      ],
-    });
-    if (!res.ok) {
-      await dmUser(
-        env,
-        userId,
-        `✅ Shipment *#${shipment.id}* saved for *${formatDate(shipDate)}*, but I couldn't post it to the channel` +
-          ` (\`${res.error}\`). It will still show up in \`/shipping\` and the daily digest.`
-      );
-    }
   }
 }

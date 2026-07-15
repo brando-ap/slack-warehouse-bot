@@ -1,0 +1,450 @@
+/* Fulfillment wallboard — dark TV theme.
+   Tokens follow the project's validated palette (see dataviz notes). */
+
+:root {
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface2: #232321;
+  --ink: #ffffff;
+  --ink2: #c3c2b7;
+  --muted: #898781;
+  --border: rgba(255, 255, 255, 0.1);
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  min-height: 100vh;
+}
+
+.board {
+  padding: 1.6rem 2rem 4.5rem;
+  max-width: 110rem;
+  margin: 0 auto;
+}
+
+/* ---------- header ---------- */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1.1rem;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+header h1 {
+  font-size: 1.5rem;
+  font-weight: 650;
+}
+.header-right {
+  display: flex;
+  gap: 1.4rem;
+  align-items: baseline;
+}
+.clock {
+  font-size: 1.35rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.sync {
+  font-size: 0.95rem;
+}
+.sync.ok {
+  color: var(--good);
+}
+.sync.stale {
+  color: var(--warning);
+}
+
+/* ---------- alert banner ---------- */
+.alert-banner {
+  background: rgba(208, 59, 59, 0.18);
+  border: 1px solid var(--critical);
+  color: var(--critical);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-align: center;
+  padding: 0.55rem;
+  border-radius: 10px;
+  margin-bottom: 1.1rem;
+  animation: pulse 2.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    background: rgba(208, 59, 59, 0.32);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alert-banner {
+    animation: none;
+  }
+}
+
+/* ---------- stat tiles ---------- */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem 1.1rem;
+}
+.stat.crit {
+  border-top-color: var(--critical);
+}
+.stat.warn {
+  border-top-color: var(--warning);
+}
+.stat.ok {
+  border-top-color: var(--good);
+}
+.stat .val {
+  font-size: 2.7rem;
+  font-weight: 750;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.stat .lbl {
+  color: var(--ink2);
+  margin-top: 0.15rem;
+}
+
+/* ---------- category tabs ---------- */
+.tabs {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1.1rem;
+  flex-wrap: wrap;
+}
+.tab {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  color: var(--ink2);
+  font: inherit;
+  font-size: 1.02rem;
+  font-weight: 600;
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+}
+.tab.active {
+  background: var(--ink);
+  color: var(--page);
+  border-color: var(--ink);
+}
+.tab-n {
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- lanes ---------- */
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.1rem;
+  align-items: start;
+}
+.lane-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.2rem 0.7rem;
+}
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.dot.critical {
+  background: var(--critical);
+}
+.dot.warning {
+  background: var(--warning);
+}
+.lane-n {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.lane-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+/* ---------- ticket cards ---------- */
+.card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 0.95rem;
+  margin-bottom: 0.8rem;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.08s ease, border-color 0.15s ease;
+}
+.card:hover,
+.card:focus-visible {
+  border-color: var(--ink2);
+  transform: translateY(-1px);
+  outline: none;
+}
+.card.crit {
+  border-left-color: var(--critical);
+}
+.card.warn {
+  border-left-color: var(--warning);
+}
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+.card-title {
+  font-size: 1.28rem;
+  font-weight: 580;
+  line-height: 1.28;
+  margin: 0.25rem 0 0.45rem;
+}
+.pri {
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.pri.critical {
+  color: var(--critical);
+}
+.pri.serious {
+  color: var(--serious);
+}
+.card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  color: var(--ink2);
+  font-size: 0.9rem;
+  padding: 0.08rem 0.6rem;
+}
+.chip.cat {
+  color: var(--ink);
+  font-weight: 650;
+}
+.chip.due {
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.chip.due.critical {
+  color: var(--critical);
+}
+.chip.due.warning {
+  color: var(--warning);
+}
+.chip.due.neutral {
+  color: var(--muted);
+}
+.card-foot {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin-top: 0.35rem;
+}
+.unclaimed {
+  color: var(--ink2);
+}
+
+/* ---------- overlays ---------- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 20;
+}
+.sheet {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.4rem 1.6rem;
+  width: min(34rem, 100%);
+}
+.sheet-ref {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.sheet-title {
+  font-size: 1.45rem;
+  font-weight: 650;
+  margin: 0.2rem 0 0.4rem;
+}
+.sheet-details {
+  color: var(--ink2);
+  margin-bottom: 0.5rem;
+  line-height: 1.45;
+}
+.sheet-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.7rem;
+  margin: 1rem 0 0.9rem;
+}
+.act {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: 650;
+  padding: 1rem 0.5rem;
+  cursor: pointer;
+}
+.act:hover,
+.act:focus-visible {
+  border-color: var(--ink2);
+  outline: none;
+}
+.act.primary {
+  background: rgba(12, 163, 12, 0.16);
+  border-color: var(--good);
+}
+.sheet-foot {
+  color: var(--muted);
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+.linkish {
+  background: none;
+  border: none;
+  color: var(--ink2);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.linkish.cancel {
+  margin-left: auto;
+}
+.people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.6rem;
+  margin: 1rem 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.act.person {
+  font-size: 1.05rem;
+  padding: 0.8rem 0.5rem;
+}
+
+/* ---------- misc ---------- */
+.all-clear {
+  color: var(--good);
+  font-size: 1.6rem;
+  font-weight: 650;
+  text-align: center;
+  padding: 3rem 0;
+}
+footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 2rem;
+  background: var(--page);
+  border-top: 1px solid var(--border);
+  color: var(--ink2);
+  font-size: 0.98rem;
+}
+footer .muted {
+  color: var(--muted);
+}
+.toast {
+  position: fixed;
+  bottom: 3.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 1.2rem;
+  font-size: 1.05rem;
+  z-index: 30;
+}
+.loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 1.3rem;
+}
+.load-error {
+  text-align: center;
+  max-width: 30rem;
+}
+.load-error h1 {
+  color: var(--ink);
+  margin-bottom: 0.6rem;
+}
+.load-error .hint {
+  color: var(--muted);
+  margin-top: 0.6rem;
+}
+code {
+  background: var(--surface2);
+  border-radius: 6px;
+  padding: 0.05rem 0.4rem;
+}
+
+@media (max-width: 1000px) {
+  .lanes,
+  .stats {
+    grid-template-columns: 1fr;
+  }
+}
