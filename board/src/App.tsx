@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import Link from '@mui/material/Link';
+import Snackbar from '@mui/material/Snackbar';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
 import { fetchBoard, sendAction } from './api';
 import type { BoardAction, BoardData, Person, Ticket } from './types';
 import { ActionSheet, CategoryTabs, Lane, PersonPicker, StatTiles } from './components';
@@ -77,7 +84,6 @@ export default function App() {
       setToast(`⚠️ ${err instanceof Error ? err.message : 'Action failed'}`);
       void refresh();
     }
-    setTimeout(() => setToast(null), 4000);
   };
 
   const visible = useMemo(() => {
@@ -100,44 +106,51 @@ export default function App() {
     };
   }, [data, visible]);
 
-  if (!data && !error) {
-    return <div className="loading">Loading the board…</div>;
-  }
   if (!data) {
     return (
-      <div className="loading">
-        <div className="load-error">
-          <h1>Can’t reach the board</h1>
-          <p>{error}</p>
-          <p className="hint">
-            Check the URL includes <code>?key=…</code> — then this page retries automatically.
-          </p>
-        </div>
-      </div>
+      <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
+        {error ? (
+          <Alert severity="error" variant="outlined" sx={{ maxWidth: '32rem' }}>
+            <Typography sx={{ fontWeight: 650 }}>Can’t reach the board</Typography>
+            <Typography variant="body2">{error}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Check the URL includes <code>?key=…</code> — this page retries automatically.
+            </Typography>
+          </Alert>
+        ) : (
+          <CircularProgress />
+        )}
+      </Box>
     );
   }
 
   const overdueCount = data.tickets.filter((t) => t.due && t.due < data.today).length;
 
   return (
-    <div className="board">
+    <Box sx={{ maxWidth: '110rem', mx: 'auto', px: 3, pt: 2.5, pb: 9 }}>
       {overdueCount > 0 && (
-        <div className="alert-banner" role="alert">
-          ⚠ {overdueCount} ticket{overdueCount === 1 ? '' : 's'} OVERDUE
-        </div>
+        <Alert
+          severity="error"
+          variant="outlined"
+          icon={false}
+          className="overdue-pulse"
+          sx={{ mb: 2, justifyContent: 'center', fontWeight: 800, letterSpacing: '0.05em' }}
+        >
+          ⚠ {overdueCount} TICKET{overdueCount === 1 ? '' : 'S'} OVERDUE
+        </Alert>
       )}
 
-      <header>
-        <h1>📦 Fulfillment Board</h1>
-        <div className="header-right">
-          <span className={`sync ${stale ? 'stale' : 'ok'}`}>
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+        <Typography variant="h1">📦 Fulfillment Board</Typography>
+        <Stack direction="row" spacing={2.5} sx={{ alignItems: 'baseline' }}>
+          <Typography variant="body2" sx={{ color: stale ? 'warning.main' : 'success.main' }}>
             {stale ? '● reconnecting…' : '● live'}
-          </span>
-          <span className="clock">
+          </Typography>
+          <Typography sx={{ fontSize: '1.35rem', fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
             {clock.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-          </span>
-        </div>
-      </header>
+          </Typography>
+        </Stack>
+      </Stack>
 
       <StatTiles tickets={data.tickets} today={data.today} doneToday={data.doneToday} />
 
@@ -148,29 +161,52 @@ export default function App() {
         onSelect={setCategory}
       />
 
-      <div className="lanes">
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2, alignItems: 'start' }}>
         <Lane title="⚠ Overdue" tone="critical" tickets={lanes.overdue} today={data.today} onTap={setTarget} />
         <Lane title="Due today" tone="warning" tickets={lanes.today} today={data.today} onTap={setTarget} />
         <Lane title="Up next" tone="neutral" tickets={lanes.upcoming} today={data.today} onTap={setTarget} />
-      </div>
+      </Box>
 
-      {data.tickets.length === 0 && <div className="all-clear">✔ All clear — no open tickets</div>}
+      {data.tickets.length === 0 && (
+        <Typography sx={{ color: 'success.main', fontSize: '1.6rem', fontWeight: 650, textAlign: 'center', py: 6 }}>
+          ✔ All clear — no open tickets
+        </Typography>
+      )}
 
-      <footer>
-        <span>
+      <Box
+        component="footer"
+        sx={{
+          position: 'fixed',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 2,
+          px: 3,
+          py: 1,
+          bgcolor: 'background.default',
+          borderTop: 1,
+          borderColor: 'divider',
+          zIndex: 10,
+        }}
+      >
+        <Typography variant="body2" color="text.secondary">
           {me ? (
             <>
               Acting as <b>{me.name}</b> ·{' '}
-              <button className="linkish" onClick={() => setPickingPerson(true)}>
+              <Link component="button" color="inherit" onClick={() => setPickingPerson(true)}>
                 switch
-              </button>
+              </Link>
             </>
           ) : (
             'Tap a ticket to claim or complete it'
           )}
-        </span>
-        <span className="muted">File tickets with /request in Slack · refreshes every 15s</span>
-      </footer>
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          File tickets with /request in Slack · refreshes every 15s
+        </Typography>
+      </Box>
 
       {target && me && !pickingPerson && (
         <ActionSheet
@@ -191,7 +227,14 @@ export default function App() {
           }}
         />
       )}
-      {toast && <div className="toast">{toast}</div>}
-    </div>
+      <Snackbar
+        open={toast !== null}
+        message={toast ?? ''}
+        autoHideDuration={4000}
+        onClose={() => setToast(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        sx={{ bottom: { xs: '3.6rem' } }}
+      />
+    </Box>
   );
 }

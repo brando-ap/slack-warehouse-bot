@@ -1,3 +1,17 @@
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Card from '@mui/material/Card';
+import CardActionArea from '@mui/material/CardActionArea';
+import CardContent from '@mui/material/CardContent';
+import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import Link from '@mui/material/Link';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import { SERIOUS } from './theme';
 import type { BoardAction, Person, Ticket } from './types';
 
 /** Whole days between two YYYY-MM-DD strings. */
@@ -7,9 +21,10 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
 }
 
-const PRIORITY_TAG: Record<string, { label: string; cls: string } | undefined> = {
-  urgent: { label: '▲ URGENT', cls: 'critical' },
-  high: { label: '▲ HIGH', cls: 'serious' },
+const TONE_COLOR: Record<string, string> = {
+  critical: '#d03b3b',
+  warning: '#fab219',
+  neutral: '#898781',
 };
 
 export function StatTiles({
@@ -23,25 +38,25 @@ export function StatTiles({
 }) {
   const overdue = tickets.filter((t) => t.due && t.due < today).length;
   const dueToday = tickets.filter((t) => t.due === today).length;
+  const tiles = [
+    { val: tickets.length, label: 'Open tickets', accent: 'divider' },
+    { val: overdue, label: overdue ? '⚠ Overdue' : 'Overdue', accent: overdue ? 'error.main' : 'divider' },
+    { val: dueToday, label: 'Due today', accent: dueToday ? 'warning.main' : 'divider' },
+    { val: doneToday, label: 'Done today', accent: 'success.main' },
+  ];
   return (
-    <div className="stats">
-      <div className="stat">
-        <div className="val">{tickets.length}</div>
-        <div className="lbl">Open tickets</div>
-      </div>
-      <div className={`stat ${overdue ? 'crit' : ''}`}>
-        <div className="val">{overdue}</div>
-        <div className="lbl">{overdue ? '⚠ Overdue' : 'Overdue'}</div>
-      </div>
-      <div className={`stat ${dueToday ? 'warn' : ''}`}>
-        <div className="val">{dueToday}</div>
-        <div className="lbl">Due today</div>
-      </div>
-      <div className="stat ok">
-        <div className="val">{doneToday}</div>
-        <div className="lbl">Done today</div>
-      </div>
-    </div>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 2, mb: 2 }}>
+      {tiles.map((tile) => (
+        <Paper
+          key={tile.label}
+          variant="outlined"
+          sx={{ p: 1.5, px: 2, borderTop: 3, borderTopColor: tile.accent }}
+        >
+          <Typography variant="h3">{tile.val}</Typography>
+          <Typography color="text.secondary">{tile.label}</Typography>
+        </Paper>
+      ))}
+    </Box>
   );
 }
 
@@ -66,28 +81,28 @@ export function CategoryTabs({
   ];
   if (tabs.length <= 2) return null;
   return (
-    <div className="tabs" role="tablist">
+    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mb: 2 }}>
       {tabs.map((tab) => (
-        <button
+        <Chip
           key={tab.key ?? '__all'}
-          role="tab"
-          aria-selected={selected === tab.key}
-          className={`tab ${selected === tab.key ? 'active' : ''}`}
+          label={`${tab.label} (${count(tab.key)})`}
+          clickable
+          color={selected === tab.key ? 'primary' : 'default'}
+          variant={selected === tab.key ? 'filled' : 'outlined'}
           onClick={() => onSelect(tab.key)}
-        >
-          {tab.label} <span className="tab-n">{count(tab.key)}</span>
-        </button>
+          sx={{ fontWeight: 600, fontSize: '1rem' }}
+        />
       ))}
-    </div>
+    </Stack>
   );
 }
 
-function dueChip(ticket: Ticket, today: string): { label: string; cls: string } | null {
+function dueChip(ticket: Ticket, today: string): { label: string; color: string } | null {
   if (!ticket.due) return null;
   const days = daysBetween(today, ticket.due);
-  if (days < 0) return { label: `OVERDUE ${-days}d`, cls: 'critical' };
-  if (days === 0) return { label: 'TODAY', cls: 'warning' };
-  if (days === 1) return { label: 'TOMORROW', cls: 'neutral' };
+  if (days < 0) return { label: `OVERDUE ${-days}d`, color: 'error.main' };
+  if (days === 0) return { label: 'TODAY', color: 'warning.main' };
+  if (days === 1) return { label: 'TOMORROW', color: 'text.secondary' };
   return {
     label: new Date(ticket.due + 'T00:00:00Z').toLocaleDateString([], {
       timeZone: 'UTC',
@@ -95,7 +110,7 @@ function dueChip(ticket: Ticket, today: string): { label: string; cls: string } 
       month: 'numeric',
       day: 'numeric',
     }),
-    cls: 'neutral',
+    color: 'text.secondary',
   };
 }
 
@@ -109,35 +124,50 @@ export function TicketCard({
   onTap: (ticket: Ticket) => void;
 }) {
   const due = dueChip(ticket, today);
-  const pri = PRIORITY_TAG[ticket.priority];
-  const laneCls = ticket.due && ticket.due < today ? 'crit' : ticket.due === today ? 'warn' : '';
+  const stripe =
+    ticket.due && ticket.due < today ? 'error.main' : ticket.due === today ? 'warning.main' : 'divider';
+  const priColor = ticket.priority === 'urgent' ? 'error.main' : ticket.priority === 'high' ? SERIOUS : null;
   return (
-    <button className={`card ${laneCls}`} onClick={() => onTap(ticket)}>
-      <div className="card-top">
-        <span className="ref">{ticket.ref}</span>
-        {due && <span className={`chip due ${due.cls}`}>{due.label}</span>}
-      </div>
-      <div className="card-title">
-        {ticket.title} {pri && <span className={`pri ${pri.cls}`}>{pri.label}</span>}
-      </div>
-      <div className="card-chips">
-        {ticket.category && <span className="chip cat">#{ticket.category}</span>}
-        {(ticket.company || ticket.contact) && (
-          <span className="chip">{[ticket.company, ticket.contact].filter(Boolean).join(' — ')}</span>
-        )}
-        {ticket.photos > 0 && <span className="chip">📷 {ticket.photos}</span>}
-      </div>
-      <div className="card-foot">
-        {ticket.assigneeName ?? ticket.assignee ? (
-          <span>
-            👤 {ticket.assigneeName ?? ticket.assignee}
-            {ticket.status === 'in_progress' ? ' · working' : ''}
-          </span>
-        ) : (
-          <span className="unclaimed">unclaimed — tap to claim</span>
-        )}
-      </div>
-    </button>
+    <Card variant="outlined" sx={{ mb: 1.5, borderLeft: 5, borderLeftColor: stripe }}>
+      <CardActionArea onClick={() => onTap(ticket)}>
+        <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              {ticket.ref}
+            </Typography>
+            {due && (
+              <Typography variant="body2" sx={{ color: due.color, fontWeight: 800, letterSpacing: '0.03em' }}>
+                {due.label}
+              </Typography>
+            )}
+          </Stack>
+          <Typography variant="h6" sx={{ my: 0.5 }}>
+            {ticket.title}{' '}
+            {priColor && (
+              <Typography component="span" variant="body2" sx={{ color: priColor, fontWeight: 800 }}>
+                ▲ {ticket.priority.toUpperCase()}
+              </Typography>
+            )}
+          </Typography>
+          <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+            {ticket.category && <Chip size="small" label={`#${ticket.category}`} sx={{ fontWeight: 650 }} />}
+            {(ticket.company || ticket.contact) && (
+              <Chip
+                size="small"
+                variant="outlined"
+                label={[ticket.company, ticket.contact].filter(Boolean).join(' — ')}
+              />
+            )}
+            {ticket.photos > 0 && <Chip size="small" variant="outlined" label={`📷 ${ticket.photos}`} />}
+          </Stack>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+            {ticket.assigneeName ?? ticket.assignee
+              ? `👤 ${ticket.assigneeName ?? ticket.assignee}${ticket.status === 'in_progress' ? ' · working' : ''}`
+              : 'unclaimed — tap to claim'}
+          </Typography>
+        </CardContent>
+      </CardActionArea>
+    </Card>
   );
 }
 
@@ -155,17 +185,33 @@ export function Lane({
   onTap: (ticket: Ticket) => void;
 }) {
   return (
-    <section className={`lane ${tone}`}>
-      <div className="lane-head">
-        <span className={`dot ${tone}`} />
-        {title}
-        <span className="lane-n">{tickets.length}</span>
-      </div>
+    <Box component="section">
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1 }}>
+        <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: TONE_COLOR[tone] }} />
+        <Typography variant="h2">{title}</Typography>
+        <Typography color="text.secondary" sx={{ ml: 'auto !important', fontVariantNumeric: 'tabular-nums' }}>
+          {tickets.length}
+        </Typography>
+      </Stack>
       {tickets.map((t) => (
         <TicketCard key={t.id} ticket={t} today={today} onTap={onTap} />
       ))}
-      {tickets.length === 0 && <div className="lane-empty">—</div>}
-    </section>
+      {tickets.length === 0 && (
+        <Box
+          sx={{
+            color: 'text.secondary',
+            textAlign: 'center',
+            p: 2,
+            border: 1,
+            borderStyle: 'dashed',
+            borderColor: 'divider',
+            borderRadius: 2,
+          }}
+        >
+          —
+        </Box>
+      )}
+    </Box>
   );
 }
 
@@ -183,33 +229,43 @@ export function ActionSheet({
   onClose: () => void;
 }) {
   return (
-    <div className="overlay" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-ref">{ticket.ref}</div>
-        <div className="sheet-title">{ticket.title}</div>
-        {ticket.details && <div className="sheet-details">{ticket.details}</div>}
-        <div className="sheet-actions">
-          <button className="act" onClick={() => onAction(ticket, 'claim')}>
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ pb: 0.5 }}>
+        <Typography variant="body2" color="text.secondary" component="div">
+          {ticket.ref}
+        </Typography>
+        {ticket.title}
+      </DialogTitle>
+      <DialogContent>
+        {ticket.details && (
+          <Typography color="text.secondary" sx={{ mb: 1 }}>
+            {ticket.details}
+          </Typography>
+        )}
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, my: 2 }}>
+          <Button variant="outlined" color="inherit" size="large" sx={{ py: 2, fontSize: '1.1rem' }} onClick={() => onAction(ticket, 'claim')}>
             🙋 Claim
-          </button>
-          <button className="act" onClick={() => onAction(ticket, 'progress')}>
-            🔄 In progress
-          </button>
-          <button className="act primary" onClick={() => onAction(ticket, 'done')}>
+          </Button>
+          <Button variant="outlined" color="inherit" size="large" sx={{ py: 2, fontSize: '1.1rem' }} onClick={() => onAction(ticket, 'progress')}>
+            🔄 Working
+          </Button>
+          <Button variant="contained" color="success" size="large" sx={{ py: 2, fontSize: '1.1rem' }} onClick={() => onAction(ticket, 'done')}>
             ✅ Done
-          </button>
-        </div>
-        <div className="sheet-foot">
-          Acting as <b>{me.name}</b> ·{' '}
-          <button className="linkish" onClick={onSwitchPerson}>
-            not you?
-          </button>
-          <button className="linkish cancel" onClick={onClose}>
+          </Button>
+        </Box>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
+          <Typography color="text.secondary">
+            Acting as <b>{me.name}</b> ·{' '}
+            <Link component="button" color="inherit" onClick={onSwitchPerson}>
+              not you?
+            </Link>
+          </Typography>
+          <Link component="button" color="inherit" onClick={onClose} sx={{ ml: 'auto !important' }}>
             cancel
-          </button>
-        </div>
-      </div>
-    </div>
+          </Link>
+        </Stack>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -223,29 +279,33 @@ export function PersonPicker({
   onClose: () => void;
 }) {
   return (
-    <div className="overlay" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-title">Who are you?</div>
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Who are you?</DialogTitle>
+      <DialogContent>
         {people.length === 0 ? (
-          <div className="sheet-details">
-            Nobody yet — use any bot command in Slack once (e.g. <code>/requests</code>) and your name
-            appears here.
-          </div>
+          <Typography color="text.secondary">
+            Nobody yet — use any bot command in Slack once (e.g. <code>/requests</code>) and your name appears
+            here.
+          </Typography>
         ) : (
-          <div className="people">
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(11rem, 1fr))',
+              gap: 1,
+              maxHeight: '50vh',
+              overflowY: 'auto',
+              py: 1,
+            }}
+          >
             {people.map((p) => (
-              <button key={p.id} className="act person" onClick={() => onPick(p)}>
+              <Button key={p.id} variant="outlined" color="inherit" size="large" onClick={() => onPick(p)}>
                 {p.name}
-              </button>
+              </Button>
             ))}
-          </div>
+          </Box>
         )}
-        <div className="sheet-foot">
-          <button className="linkish cancel" onClick={onClose}>
-            cancel
-          </button>
-        </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
